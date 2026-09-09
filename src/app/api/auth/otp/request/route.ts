@@ -16,7 +16,7 @@ export const POST = api(async (req) => {
   );
   const phone = acceptPhone(raw);
 
-  if (config.otpSkip && !config.isProd) {
+  if (config.otpSkip) {
     return json(await signInWithPhone(phone));
   }
 

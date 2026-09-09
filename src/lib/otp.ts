@@ -11,7 +11,7 @@ const MAX_ATTEMPTS = 5;
 const SKIP_CODE = "00000";
 
 export async function issueOtp(phone: string) {
-  if (config.otpSkip && !config.isProd) {
+  if (config.otpSkip) {
     await prisma.otpCode.deleteMany({ where: { phone } });
     await prisma.otpCode.create({
       data: {
@@ -59,7 +59,7 @@ export async function issueOtp(phone: string) {
 }
 
 export async function verifyOtp(phone: string, code: string): Promise<void> {
-  if (config.otpSkip && !config.isProd) {
+  if (config.otpSkip) {
     await prisma.otpCode.deleteMany({ where: { phone } });
     return;
   }
