@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: kobo
+      POSTGRES_PASSWORD: kobo
+      POSTGRES_DB: koboride
+    volumes:
+      - koboride_pg:/var/lib/postgresql/data
+
+volumes:
+  koboride_pg:
