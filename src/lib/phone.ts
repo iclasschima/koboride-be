@@ -16,7 +16,7 @@ export function normalizePhone(input: string): string {
 export function acceptPhone(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) throw new AppError("Enter a phone number", "INVALID_PHONE", 400);
-  if (config.otpSkip && !config.isProd) return trimmed;
+  if (config.otpSkip) return trimmed;
   return normalizePhone(trimmed);
 }
 

@@ -19,7 +19,7 @@ export const POST = api(async (req) => {
   );
   const phone = acceptPhone(body.phone);
 
-  if (!(config.otpSkip && !config.isProd)) {
+  if (!config.otpSkip) {
     if (!body.code || !/^\d{4,6}$/.test(body.code)) {
       throw new AppError("Enter the code we sent", "VALIDATION_ERROR", 400);
     }

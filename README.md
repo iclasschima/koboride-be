@@ -51,9 +51,72 @@ Fare is **₦1,500 flat** when both points are inside the Yaba box. Anything out
 
 ## Deploy
 
-Use a hosted Postgres for the database and Vercel (or any Node host) for this Next.js API. Do not run `prisma db seed` in production — it deletes all rows.
+Use hosted Postgres plus a Node web service. Do not run `prisma db seed` in production — it deletes all rows.
 
-### 1. Database (Neon)
+### Render (recommended for this repo)
+
+Render can run **both** the API and Postgres.
+
+**A. Database**
+
+1. In [dashboard.render.com](https://dashboard.render.com) → **New → PostgreSQL**.
+2. Same region you will use for the API (e.g. Frankfurt).
+3. Copy **Internal Database URL** for the web service (`DATABASE_URL`). Use **External Database URL** only from your laptop (`migrate` / `db:admin`).
+4. Add `?sslmode=require` if the URL does not already include SSL.
+
+Apply schema from your machine (once):
+
+```bash
+DATABASE_URL="postgresql://...render.com/koboride?sslmode=require" npx prisma migrate deploy
+DATABASE_URL="postgresql://..." ADMIN_EMAIL="you@koboride.ng" ADMIN_PASSWORD="a-strong-password" npm run db:admin
+```
+
+You can also skip the laptop migrate step: the API **build** already runs `prisma migrate deploy` if `DATABASE_URL` is set.
+
+**B. Web service**
+
+1. **New → Web Service** → connect `iclasschima/koboride-be` (`main`).
+2. Settings:
+
+| Field | Value |
+| ----- | ----- |
+| Runtime | Node |
+| Branch | `main` |
+| Build command | `npm install && npm run build` |
+| Start command | `npm start` |
+| Health check path | `/api/health` |
+
+3. Environment:
+
+| Name | Value |
+| ---- | ----- |
+| `NODE_VERSION` | `20` |
+| `DATABASE_URL` | Internal URL from the Render Postgres instance (link the database in the dashboard if you can) |
+| `JWT_SECRET` | long random string |
+| `JWT_EXPIRES_IN` | `14d` |
+| `CORS_ORIGIN` | your frontend origin, e.g. `https://koboride-fe.onrender.com` |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | admin login |
+| `GOOGLE_PLACES_API_KEY` | Places API (New) |
+| `YABA_FLAT_FEE_NGN` | `1500` |
+| `PLATFORM_CUT_PERCENT` | `20` |
+| `OTP_SKIP` | `true` until SMS is on |
+
+4. Deploy. Open `https://your-service.onrender.com/api/health` → `{ "ok": true }`.
+5. Set the frontend `NEXT_PUBLIC_API_URL` to that origin (no trailing slash).
+
+`npm start` listens on Render’s `PORT`. Free web instances sleep when idle; the first request can take ~30s.
+
+If GitHub still has `next start -p 3001`, override **Start command** to:
+
+```bash
+npx next start -p $PORT
+```
+
+Push the latest `package.json` (`start` uses `${PORT:-3001}`) so you do not need that override.
+
+Neon still works as the database if you only want Render for the API: put Neon’s URL in `DATABASE_URL` instead of Render Postgres.
+
+### 1. Database (Neon) — alternative
 
 1. Create a project at [neon.tech](https://neon.tech) (free Postgres).
 2. Copy the connection string (`DATABASE_URL`). Use the **pooled** URL for the app if Neon shows one (`-pooler` host), and add `?sslmode=require` if it is missing.
