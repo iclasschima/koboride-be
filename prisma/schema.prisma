@@ -1,0 +1,91 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderStatus {
+  dispatching
+  in_progress
+  completed
+  cancelled
+}
+
+enum RiderPhase {
+  accepted
+  en_route_pickup
+  collected
+  en_route_dropoff
+  delivered
+}
+
+enum RiderAvailability {
+  OFFLINE
+  ONLINE
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  orders    Order[]
+}
+
+model Rider {
+  id           String            @id @default(cuid())
+  phone        String            @unique
+  name         String
+  approved     Boolean           @default(false)
+  availability RiderAvailability @default(OFFLINE)
+  createdAt    DateTime          @default(now())
+  orders       Order[]
+}
+
+model Admin {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+model OtpCode {
+  id        String   @id @default(cuid())
+  phone     String
+  pinId     String?
+  codeHash  String?
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([phone])
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  status      OrderStatus @default(dispatching)
+  riderPhase  RiderPhase?
+
+  customerId  String
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  riderId     String?
+  rider       Rider?      @relation(fields: [riderId], references: [id])
+
+  pickup      String
+  pickupLat   Float
+  pickupLng   Float
+  dropoff     String
+  dropoffLat  Float
+  dropoffLng  Float
+  notes       String?
+
+  feeNgn      Int
+  payoutNgn   Int
+  payoutPaid  Boolean     @default(false)
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
