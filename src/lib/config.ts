@@ -22,7 +22,7 @@ export const config = {
     "",
   ),
   otpDevEcho: process.env.OTP_DEV_ECHO === "true",
-  otpSkip: process.env.OTP_SKIP === "true",
+  otpSkip: process.env.OTP_SKIP !== "false",
   googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY ?? "",
   isProd: process.env.NODE_ENV === "production",
 };
