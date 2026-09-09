@@ -1,10 +1,8 @@
 import { z } from "zod";
-import { api, json, options, AppError } from "@/lib/errors";
+import { api, json, options } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
 import { acceptPhone } from "@/lib/phone";
-import { verifyOtp } from "@/lib/otp";
 import { signInWithPhone } from "@/lib/auth";
-import { config } from "@/lib/config";
 
 export const OPTIONS = () => options();
 
@@ -17,14 +15,5 @@ export const POST = api(async (req) => {
     }),
     await readJson(req),
   );
-  const phone = acceptPhone(body.phone);
-
-  if (!config.otpSkip) {
-    if (!body.code || !/^\d{4,6}$/.test(body.code)) {
-      throw new AppError("Enter the code we sent", "VALIDATION_ERROR", 400);
-    }
-    await verifyOtp(phone, body.code);
-  }
-
-  return json(await signInWithPhone(phone, body.name));
+  return json(await signInWithPhone(acceptPhone(body.phone), body.name));
 });
