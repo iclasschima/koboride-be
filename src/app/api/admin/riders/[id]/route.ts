@@ -30,3 +30,26 @@ export const PATCH = api(async (req, ctx) => {
     },
   });
 });
+
+export const DELETE = api(async (req, ctx) => {
+  requireUser(req, ["admin"]);
+  const id = ctx.params?.id;
+  if (!id) throw new AppError("Missing rider id", "VALIDATION_ERROR", 400);
+
+  const rider = await prisma.rider.findUnique({ where: { id } });
+  if (!rider) throw new AppError("Rider not found", "NOT_FOUND", 404);
+
+  const liveJobs = await prisma.order.count({
+    where: { riderId: id, status: "in_progress" },
+  });
+  if (liveJobs > 0) {
+    throw new AppError(
+      "This rider has a live job. Reassign or finish it first.",
+      "RIDER_HAS_LIVE_JOB",
+      409,
+    );
+  }
+
+  await prisma.rider.delete({ where: { id } });
+  return json({ ok: true });
+});

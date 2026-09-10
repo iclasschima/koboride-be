@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { api, json, options } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
-import { acceptPhone } from "@/lib/phone";
-import { signInWithPhone } from "@/lib/auth";
+import { signInCustomer } from "@/lib/auth";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const OPTIONS = () => options();
 
+/** Alias of POST /api/auth/customer/login */
 export const POST = api(async (req) => {
   const body = parseBody(
     z.object({
@@ -15,5 +16,6 @@ export const POST = api(async (req) => {
     }),
     await readJson(req),
   );
-  return json(await signInWithPhone(acceptPhone(body.phone), body.name));
+  rateLimit(`customer-login:${body.phone.trim()}`, 20, 15 * 60 * 1000);
+  return json(await signInCustomer(body.phone, body.name));
 });

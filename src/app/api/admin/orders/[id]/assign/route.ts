@@ -15,12 +15,19 @@ export const POST = api(async (req, ctx) => {
   const { riderId } = parseBody(z.object({ riderId: z.string().min(1) }), await readJson(req));
   const order = await prisma.order.findUnique({ where: { id } });
   if (!order) throw new AppError("Order not found", "ORDER_NOT_FOUND", 404);
-  if (order.status !== "dispatching") {
-    throw new AppError("Can only assign while searching for a rider", "INVALID_STATUS", 409);
+
+  const canAssign =
+    order.status === "dispatching" ||
+    (order.status === "in_progress" && order.riderPhase !== "delivered");
+  if (!canAssign) {
+    throw new AppError("This order can no longer be assigned", "INVALID_STATUS", 409);
   }
 
   const rider = await prisma.rider.findUnique({ where: { id: riderId } });
   if (!rider?.approved) throw new AppError("Rider is not approved", "RIDER_NOT_APPROVED", 400);
+  if (order.riderId === rider.id) {
+    throw new AppError("That rider is already assigned", "ALREADY_ASSIGNED", 409);
+  }
 
   const updated = await prisma.order.update({
     where: { id: order.id },

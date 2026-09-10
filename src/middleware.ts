@@ -23,7 +23,7 @@ function withCors(headers: Headers, origin: string | null) {
     headers.set("Access-Control-Allow-Origin", allow);
     headers.set("Vary", "Origin");
   }
-  headers.set("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
+  headers.set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   headers.set("Access-Control-Max-Age", "86400");
 }
