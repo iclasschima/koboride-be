@@ -82,6 +82,11 @@ model Order {
   dropoffLng  Float
   notes       String?
 
+  senderName     String   @default("")
+  senderPhone    String   @default("")
+  receiverName   String   @default("")
+  receiverPhone  String   @default("")
+
   feeNgn      Int
   payoutNgn   Int
   payoutPaid  Boolean     @default(false)
