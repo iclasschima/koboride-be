@@ -18,7 +18,7 @@ export const RIDER_PHASES: RiderPhase[] = [
   "delivered",
 ];
 
-export function autoConfirmMs(): number {
+function autoConfirmMs(): number {
   return config.autoConfirmMinutes * 60 * 1000;
 }
 
@@ -81,9 +81,6 @@ export function presentTrip(order: OrderRow) {
     payoutPaid: order.payoutPaid,
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),
-    autoConfirmAt: awaiting
-      ? new Date(order.updatedAt.getTime() + autoConfirmMs()).toISOString()
-      : null,
     autoConfirmInMs: awaiting
       ? Math.max(0, order.updatedAt.getTime() + autoConfirmMs() - Date.now())
       : null,

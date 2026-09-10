@@ -44,7 +44,7 @@ export const POST = api(async (req) => {
     throw new AppError("Customer not found", "NOT_FOUND", 404);
   }
 
-  const senderName = (body.senderName?.trim() || customer.name?.trim() || "Customer");
+  const senderName = body.senderName?.trim() || customer.name?.trim() || "Customer";
   const senderPhone = preferredPhone(body.senderPhone || customer.phone);
 
   const quote = quoteRoute(body);
