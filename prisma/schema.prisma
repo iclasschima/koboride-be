@@ -64,6 +64,22 @@ model OtpCode {
   @@index([phone])
 }
 
+enum PushRole {
+  customer
+  rider
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  role      PushRole
+  endpoint  String   @unique
+  keys      Json
+  createdAt DateTime @default(now())
+
+  @@index([userId, role])
+}
+
 model Order {
   id          String      @id @default(cuid())
   status      OrderStatus @default(dispatching)

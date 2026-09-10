@@ -2,6 +2,7 @@ import { api, json, options, AppError } from "@/lib/errors";
 import { requireRider } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { orderInclude, presentTrip } from "@/lib/orders";
+import { notifyOrderAccepted } from "@/lib/push";
 
 export const OPTIONS = () => options();
 
@@ -31,5 +32,6 @@ export const POST = api(async (req, ctx) => {
     where: { id },
     include: orderInclude,
   });
+  await notifyOrderAccepted(order);
   return json({ trip: presentTrip(order) });
 });

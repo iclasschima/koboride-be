@@ -5,6 +5,7 @@ import { parseBody, readJson } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
 import { getOrderOrThrow, orderInclude, presentTrip } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
+import { notifyOrderAccepted, notifyOrderDelivered, notifySearchingRider } from "@/lib/push";
 
 export const OPTIONS = () => options();
 
@@ -51,5 +52,18 @@ export const POST = api(async (req, ctx) => {
     data,
     include: orderInclude,
   });
+
+  if (order.status !== "dispatching" && updated.status === "dispatching") {
+    await notifySearchingRider(updated);
+  } else if (order.status === "dispatching" && updated.status === "in_progress") {
+    await notifyOrderAccepted(updated);
+  } else if (
+    updated.riderPhase === "delivered" &&
+    order.riderPhase !== "delivered" &&
+    (updated.status === "in_progress" || updated.status === "completed")
+  ) {
+    await notifyOrderDelivered(updated);
+  }
+
   return json({ trip: presentTrip(updated) });
 });
