@@ -24,6 +24,9 @@ export const config = {
   otpDevEcho: process.env.OTP_DEV_ECHO === "true",
   otpSkip: process.env.OTP_SKIP !== "false",
   googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY ?? "",
+  vapidPublicKey: process.env.VAPID_PUBLIC_KEY ?? "",
+  vapidPrivateKey: process.env.VAPID_PRIVATE_KEY ?? "",
+  vapidSubject: process.env.VAPID_SUBJECT ?? "mailto:hello@koboride.ng",
   isProd: process.env.NODE_ENV === "production",
   /** Minutes after the rider marks delivered before the order auto-completes. */
   autoConfirmMinutes: intEnv("AUTO_CONFIRM_MINUTES", 15),

@@ -4,6 +4,7 @@ import { parseBody, readJson } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { orderInclude, presentTrip } from "@/lib/orders";
+import { notifyOrderAccepted } from "@/lib/push";
 
 export const OPTIONS = () => options();
 
@@ -34,5 +35,8 @@ export const POST = api(async (req, ctx) => {
     data: { riderId: rider.id, status: "in_progress", riderPhase: "accepted" },
     include: orderInclude,
   });
+  if (order.status === "dispatching") {
+    await notifyOrderAccepted(updated);
+  }
   return json({ trip: presentTrip(updated) });
 });

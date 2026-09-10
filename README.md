@@ -31,6 +31,8 @@ The frontend (`koboride-fe`) should set `NEXT_PUBLIC_API_URL=http://localhost:30
 | GET | `/api/places/details?id=&session=` | |
 | GET/POST | `/api/orders` | coords required on create |
 | GET | `/api/orders/:id` | |
+| POST | `/api/push/subscribe` | save Web Push subscription for the JWT user |
+| POST | `/api/push/unsubscribe` | `{ endpoint }` |
 | POST | `/api/orders/:id/cancel` | |
 | POST | `/api/orders/:id/auto-assign` | first available / only rider |
 | POST | `/api/orders/:id/accept` | rider claims a waiting job |
@@ -43,8 +45,8 @@ The frontend (`koboride-fe`) should set `NEXT_PUBLIC_API_URL=http://localhost:30
 | GET | `/api/places/reverse?lat=&lng=` | |
 | GET | `/api/admin/customers` | |
 | GET | `/api/admin/customers/:id` | |
-| GET | `/api/admin/orders` | |
-| GET | `/api/admin/orders/:id` | |
+| GET/POST | `/api/admin/orders` | admin can create an order |
+| GET/DELETE | `/api/admin/orders/:id` | admin can permanently delete an order |
 | POST | `/api/admin/orders/:id/assign` `{ riderId }` | |
 | POST | `/api/admin/orders/:id/override-status` `{ status, phase? }` | |
 | POST | `/api/admin/orders/:id/mark-paid` | |
@@ -53,6 +55,8 @@ The frontend (`koboride-fe`) should set `NEXT_PUBLIC_API_URL=http://localhost:30
 | DELETE | `/api/admin/riders/:id` | |
 
 Trip `status`: `dispatching` → `in_progress` → `completed`. Rider taps advance `riderPhase`. After the rider marks **delivered**, the customer can confirm, or the order auto-completes after `AUTO_CONFIRM_MINUTES` (default 15).
+
+Web Push is additive (polling stays). Customers get a push when a rider accepts or marks delivered. Online riders get a push when a new order is waiting. Users opt in from Account / Profile — if they have no `PushSubscription`, sends are skipped.
 
 Location search uses Places API (New) (`GOOGLE_PLACES_API_KEY`). Empty search on the app is Yaba shortcuts; typing hits Google, biased to Yaba.
 
@@ -106,12 +110,13 @@ You can also skip the laptop migrate step: the API **build** already runs `prism
 | `CORS_ORIGIN` | your frontend origin, e.g. `https://koboride-fe.onrender.com` |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | admin login |
 | `GOOGLE_PLACES_API_KEY` | Places API (New) |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | `npx web-push generate-vapid-keys` (same public key as the frontend) |
 | `YABA_FLAT_FEE_NGN` | `1000` |
 | `PLATFORM_CUT_PERCENT` | `20` |
 | `OTP_SKIP` | `true` until SMS is on |
 
 4. Deploy. Open `https://your-service.onrender.com/api/health` → `{ "ok": true }`.
-5. Set the frontend `NEXT_PUBLIC_API_URL` to that origin (no trailing slash).
+5. Set the frontend `NEXT_PUBLIC_API_URL` to that origin (no trailing slash). Also set `NEXT_PUBLIC_VAPID_PUBLIC_KEY` to the same public VAPID key.
 
 `npm start` listens on Render’s `PORT`. Free web instances sleep when idle; the first request can take ~30s.
 
@@ -157,13 +162,14 @@ DATABASE_URL="postgresql://..." ADMIN_EMAIL="you@koboride.ng" ADMIN_PASSWORD="a-
 | `ADMIN_EMAIL` | admin login |
 | `ADMIN_PASSWORD` | admin login |
 | `GOOGLE_PLACES_API_KEY` | Places API (New) |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | `npx web-push generate-vapid-keys` |
 | `YABA_FLAT_FEE_NGN` | `1000` |
 | `PLATFORM_CUT_PERCENT` | `20` |
 | `OTP_SKIP` | `true` until SMS is ready |
 
 3. Deploy. `npm run build` runs `prisma migrate deploy` then `next build`.
 4. Check `https://your-api.vercel.app/api/health` → `{ "ok": true }`.
-5. Point the frontend `NEXT_PUBLIC_API_URL` at that origin (no trailing slash).
+5. Point the frontend `NEXT_PUBLIC_API_URL` at that origin (no trailing slash) and set `NEXT_PUBLIC_VAPID_PUBLIC_KEY`.
 
 Restrict the Google key to your Vercel API host when you can. Keep `OTP_SKIP=false` and set Sendchamp vars before real users.
 

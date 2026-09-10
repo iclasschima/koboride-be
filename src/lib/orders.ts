@@ -2,6 +2,8 @@ import type { Prisma, RiderPhase } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { config } from "@/lib/config";
+import { quoteRoute } from "@/lib/fare";
+import { notifyOrderAccepted, notifySearchingRider } from "@/lib/push";
 
 export const orderInclude = {
   rider: { select: { id: true, name: true, phone: true } },
@@ -98,4 +100,58 @@ export function assertCustomerOwns(order: { customerId: string }, userId: string
   if (order.customerId !== userId) {
     throw new AppError("This order does not belong to you", "FORBIDDEN", 403);
   }
+}
+
+export type PlaceOrderInput = {
+  customerId: string;
+  pickup: string;
+  dropoff: string;
+  notes: string;
+  pickupLat: number;
+  pickupLng: number;
+  dropoffLat: number;
+  dropoffLng: number;
+  senderName: string;
+  senderPhone: string;
+  receiverName: string;
+  receiverPhone: string;
+  riderId?: string;
+};
+
+export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
+  const quote = quoteRoute(input);
+  let riderId: string | undefined;
+  if (input.riderId) {
+    const rider = await prisma.rider.findUnique({ where: { id: input.riderId } });
+    if (!rider?.approved) throw new AppError("Rider is not approved", "RIDER_NOT_APPROVED", 400);
+    riderId = rider.id;
+  }
+
+  const order = await prisma.order.create({
+    data: {
+      customerId: input.customerId,
+      pickup: quote.pickup,
+      dropoff: quote.dropoff,
+      notes: input.notes.trim(),
+      senderName: input.senderName,
+      senderPhone: input.senderPhone,
+      receiverName: input.receiverName,
+      receiverPhone: input.receiverPhone,
+      pickupLat: quote.pickupLat,
+      pickupLng: quote.pickupLng,
+      dropoffLat: quote.dropoffLat,
+      dropoffLng: quote.dropoffLng,
+      feeNgn: quote.feeNgn,
+      payoutNgn: quote.payoutNgn,
+      ...(riderId
+        ? { riderId, status: "in_progress" as const, riderPhase: "accepted" as const }
+        : {}),
+    },
+    include: orderInclude,
+  });
+
+  if (order.riderId) await notifyOrderAccepted(order);
+  else await notifySearchingRider(order);
+
+  return order;
 }

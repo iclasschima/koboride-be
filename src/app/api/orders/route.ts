@@ -3,8 +3,7 @@ import { api, json, options, AppError } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { orderInclude, presentTrip, autoConfirmStaleDeliveries } from "@/lib/orders";
-import { quoteRoute } from "@/lib/fare";
+import { orderInclude, presentTrip, autoConfirmStaleDeliveries, placeOrder } from "@/lib/orders";
 import { preferredPhone } from "@/lib/phone";
 
 export const OPTIONS = () => options();
@@ -47,25 +46,19 @@ export const POST = api(async (req) => {
   const senderName = body.senderName?.trim() || customer.name?.trim() || "Customer";
   const senderPhone = preferredPhone(body.senderPhone || customer.phone);
 
-  const quote = quoteRoute(body);
-  const order = await prisma.order.create({
-    data: {
-      customerId: user.sub,
-      pickup: quote.pickup,
-      dropoff: quote.dropoff,
-      notes: body.notes.trim(),
-      senderName,
-      senderPhone,
-      receiverName: body.receiverName.trim(),
-      receiverPhone: preferredPhone(body.receiverPhone),
-      pickupLat: quote.pickupLat,
-      pickupLng: quote.pickupLng,
-      dropoffLat: quote.dropoffLat,
-      dropoffLng: quote.dropoffLng,
-      feeNgn: quote.feeNgn,
-      payoutNgn: quote.payoutNgn,
-    },
-    include: orderInclude,
+  const order = await placeOrder({
+    customerId: customer.id,
+    pickup: body.pickup,
+    dropoff: body.dropoff,
+    notes: body.notes,
+    pickupLat: body.pickupLat,
+    pickupLng: body.pickupLng,
+    dropoffLat: body.dropoffLat,
+    dropoffLng: body.dropoffLng,
+    senderName,
+    senderPhone,
+    receiverName: body.receiverName.trim(),
+    receiverPhone: preferredPhone(body.receiverPhone),
   });
 
   return json({ trip: presentTrip(order) }, 201);
