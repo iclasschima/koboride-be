@@ -103,12 +103,17 @@ export async function autocompletePlaces(
   return (body.suggestions ?? [])
     .map((s) => s.placePrediction)
     .filter((p): p is NonNullable<typeof p> => Boolean(p?.placeId))
-    .map((p) => ({
-      id: p.placeId!,
-      name: p.structuredFormat?.mainText?.text ?? p.text?.text ?? "Place",
-      area: p.structuredFormat?.secondaryText?.text ?? "Lagos",
-      source: "google" as const,
-    }))
+    .map((p) => {
+      const main = p.structuredFormat?.mainText?.text?.trim();
+      const secondary = p.structuredFormat?.secondaryText?.text?.trim();
+      const full = p.text?.text?.trim() || [main, secondary].filter(Boolean).join(", ");
+      return {
+        id: p.placeId!,
+        name: full || "Place",
+        area: secondary && full && !full.includes(secondary) ? secondary : "",
+        source: "google" as const,
+      };
+    })
     .slice(0, 8);
 }
 
@@ -135,10 +140,13 @@ export async function getPlaceDetails(
     throw new AppError("KoboRide only operates in Yaba", "OUTSIDE_SERVICE_AREA", 400);
   }
 
+  const formatted = body.formattedAddress?.trim();
+  const shortName = body.displayName?.text?.trim();
+
   return {
     id: body.id ?? id,
-    name: body.displayName?.text ?? "Place",
-    area: body.formattedAddress ?? "Lagos",
+    name: formatted || shortName || "Place",
+    area: shortName && formatted && !formatted.includes(shortName) ? shortName : "Yaba",
     lat,
     lng,
   };

@@ -10,9 +10,9 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET ?? "dev-only-insecure-secret",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "14d",
 
-  baseFeeNgn: intEnv("BASE_FEE_NGN", 1500),
+  baseFeeNgn: intEnv("BASE_FEE_NGN", 1000),
   perKmFeeNgn: intEnv("PER_KM_FEE_NGN", 200),
-  yabaFlatFeeNgn: intEnv("YABA_FLAT_FEE_NGN", 1500),
+  yabaFlatFeeNgn: intEnv("YABA_FLAT_FEE_NGN", 1000),
   platformCutPercent: intEnv("PLATFORM_CUT_PERCENT", 20),
 
   sendchampPublicKey: process.env.SENDCHAMP_PUBLIC_KEY ?? "",
@@ -25,6 +25,8 @@ export const config = {
   otpSkip: process.env.OTP_SKIP !== "false",
   googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY ?? "",
   isProd: process.env.NODE_ENV === "production",
+  /** Minutes after the rider marks delivered before the order auto-completes. */
+  autoConfirmMinutes: intEnv("AUTO_CONFIRM_MINUTES", 15),
 };
 
 export function riderPayoutNgn(feeNgn: number): number {

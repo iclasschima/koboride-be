@@ -52,11 +52,11 @@ The frontend (`koboride-fe`) should set `NEXT_PUBLIC_API_URL=http://localhost:30
 | PATCH | `/api/admin/riders/:id` `{ approved }` | |
 | DELETE | `/api/admin/riders/:id` | |
 
-Trip `status`: `dispatching` → `in_progress` → `completed`. Rider taps advance `riderPhase`.
+Trip `status`: `dispatching` → `in_progress` → `completed`. Rider taps advance `riderPhase`. After the rider marks **delivered**, the customer can confirm, or the order auto-completes after `AUTO_CONFIRM_MINUTES` (default 15).
 
 Location search uses Places API (New) (`GOOGLE_PLACES_API_KEY`). Empty search on the app is Yaba shortcuts; typing hits Google, biased to Yaba.
 
-Fare is **₦1,500 flat** when both points are inside the Yaba box. Anything outside is rejected. Rider payout is 80%. Tune with `YABA_FLAT_FEE_NGN`.
+Fare is **₦1,000 flat** when both points are inside the Yaba box. Anything outside is rejected. Rider payout is 80%. Tune with `YABA_FLAT_FEE_NGN`.
 
 ## Deploy
 
@@ -106,7 +106,7 @@ You can also skip the laptop migrate step: the API **build** already runs `prism
 | `CORS_ORIGIN` | your frontend origin, e.g. `https://koboride-fe.onrender.com` |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | admin login |
 | `GOOGLE_PLACES_API_KEY` | Places API (New) |
-| `YABA_FLAT_FEE_NGN` | `1500` |
+| `YABA_FLAT_FEE_NGN` | `1000` |
 | `PLATFORM_CUT_PERCENT` | `20` |
 | `OTP_SKIP` | `true` until SMS is on |
 
@@ -157,7 +157,7 @@ DATABASE_URL="postgresql://..." ADMIN_EMAIL="you@koboride.ng" ADMIN_PASSWORD="a-
 | `ADMIN_EMAIL` | admin login |
 | `ADMIN_PASSWORD` | admin login |
 | `GOOGLE_PLACES_API_KEY` | Places API (New) |
-| `YABA_FLAT_FEE_NGN` | `1500` |
+| `YABA_FLAT_FEE_NGN` | `1000` |
 | `PLATFORM_CUT_PERCENT` | `20` |
 | `OTP_SKIP` | `true` until SMS is ready |
 
