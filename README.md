@@ -14,27 +14,35 @@ npm run dev                   # :3001
 
 Admin: `admin@koboride.ng` / `ChangeMeNow!`
 
-OTP is skipped when `OTP_SKIP=true` (development). Phone sign-in issues a session immediately.
+OTP is skipped when `OTP_SKIP=true` (development). Each user type has its own login.
 
 The frontend (`koboride-fe`) should set `NEXT_PUBLIC_API_URL=http://localhost:3001`.
 
 | Method | Path | Notes |
 | ------ | ---- | ----- |
 | GET | `/api/health` | uptime |
-| POST | `/api/auth/otp/request` `{ phone }` | sign-in (OTP skipped in dev) |
-| POST | `/api/auth/otp/verify` `{ phone, code }` | used when OTP is on |
-| GET/PATCH | `/api/auth/me` `{ name }` | |
-| POST | `/api/auth/admin/login` | |
+| POST | `/api/auth/customer/login` `{ phone }` | customer register/sign-in |
+| POST | `/api/auth/rider/login` `{ phone }` | rider sign-in (must already exist) |
+| POST | `/api/auth/admin/login` `{ email, password }` | ops sign-in |
+| POST | `/api/auth/otp/request` `{ phone }` | alias of customer login |
+| POST | `/api/auth/otp/verify` `{ phone, code }` | alias of customer login |
+| GET/PATCH | `/api/auth/me` `{ name }` | JWT role: customer, rider, or admin |
 | GET | `/api/places/autocomplete?q=&session=` | Google Places |
 | GET | `/api/places/details?id=&session=` | |
 | GET/POST | `/api/orders` | coords required on create |
 | GET | `/api/orders/:id` | |
 | POST | `/api/orders/:id/cancel` | |
+| POST | `/api/orders/:id/auto-assign` | first available / only rider |
+| POST | `/api/orders/:id/accept` | rider claims a waiting job |
 | POST | `/api/orders/:id/confirm` | |
 | POST | `/api/orders/:id/status` | rider advances phase |
 | POST | `/api/riders/availability` `{ online }` | |
 | GET | `/api/riders/jobs` | |
+| GET | `/api/riders/available-jobs` | waiting orders |
 | GET | `/api/riders/earnings` | |
+| GET | `/api/places/reverse?lat=&lng=` | |
+| GET | `/api/admin/customers` | |
+| GET | `/api/admin/customers/:id` | |
 | GET | `/api/admin/orders` | |
 | GET | `/api/admin/orders/:id` | |
 | POST | `/api/admin/orders/:id/assign` `{ riderId }` | |
@@ -42,6 +50,7 @@ The frontend (`koboride-fe`) should set `NEXT_PUBLIC_API_URL=http://localhost:30
 | POST | `/api/admin/orders/:id/mark-paid` | |
 | GET/POST | `/api/admin/riders` | |
 | PATCH | `/api/admin/riders/:id` `{ approved }` | |
+| DELETE | `/api/admin/riders/:id` | |
 
 Trip `status`: `dispatching` → `in_progress` → `completed`. Rider taps advance `riderPhase`.
 

@@ -1,5 +1,4 @@
 import { AppError } from "@/lib/errors";
-import { config } from "@/lib/config";
 
 /** Normalize NG numbers to E.164 (+234…). */
 export function normalizePhone(input: string): string {
@@ -12,12 +11,27 @@ export function normalizePhone(input: string): string {
   throw new AppError("Enter a valid Nigerian phone number", "INVALID_PHONE", 400);
 }
 
-/** When OTP is skipped, store whatever they typed. */
-export function acceptPhone(input: string): string {
+/** Raw input plus E.164, so 080… and +234… hit the same account. */
+export function phoneLookupKeys(input: string): string[] {
   const trimmed = input.trim();
   if (!trimmed) throw new AppError("Enter a phone number", "INVALID_PHONE", 400);
-  if (config.otpSkip) return trimmed;
-  return normalizePhone(trimmed);
+  const keys = new Set<string>([trimmed]);
+  try {
+    keys.add(normalizePhone(trimmed));
+  } catch {
+    /* keep the typed value */
+  }
+  return Array.from(keys);
+}
+
+export function preferredPhone(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) throw new AppError("Enter a phone number", "INVALID_PHONE", 400);
+  try {
+    return normalizePhone(trimmed);
+  } catch {
+    return trimmed;
+  }
 }
 
 export function maskPhone(phone: string): string {

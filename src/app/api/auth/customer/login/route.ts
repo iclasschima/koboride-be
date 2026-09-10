@@ -6,12 +6,14 @@ import { rateLimit } from "@/lib/rate-limit";
 
 export const OPTIONS = () => options();
 
-/** Alias of POST /api/auth/customer/login */
 export const POST = api(async (req) => {
-  const { phone } = parseBody(
-    z.object({ phone: z.string().min(1) }),
+  const body = parseBody(
+    z.object({
+      phone: z.string().min(1),
+      name: z.string().min(1).max(80).optional(),
+    }),
     await readJson(req),
   );
-  rateLimit(`customer-login:${phone.trim()}`, 20, 15 * 60 * 1000);
-  return json(await signInCustomer(phone));
+  rateLimit(`customer-login:${body.phone.trim()}`, 20, 15 * 60 * 1000);
+  return json(await signInCustomer(body.phone, body.name));
 });

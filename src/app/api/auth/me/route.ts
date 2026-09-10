@@ -15,22 +15,34 @@ export const GET = api(async (req) => {
       select: { id: true, email: true, createdAt: true },
     });
     if (!admin) throw new AppError("Account not found", "NOT_FOUND", 404);
-    return json({ user: { id: admin.id, phone: admin.email, name: admin.email }, rider: null });
+    return json({
+      role: "admin" as const,
+      user: { id: admin.id, email: admin.email, phone: admin.email, name: admin.email },
+      rider: null,
+    });
+  }
+
+  if (user.role === "rider") {
+    const rider = await prisma.rider.findUnique({ where: { id: user.sub } });
+    if (!rider) throw new AppError("Account not found", "NOT_FOUND", 404);
+    return json({
+      role: "rider" as const,
+      user: { id: rider.id, phone: rider.phone, name: rider.name },
+      rider: {
+        id: rider.id,
+        approved: rider.approved,
+        online: rider.availability === "ONLINE",
+      },
+    });
   }
 
   const customer = await prisma.customer.findUnique({ where: { id: user.sub } });
   if (!customer) throw new AppError("Account not found", "NOT_FOUND", 404);
 
-  const rider = await prisma.rider.findUnique({
-    where: { phone: customer.phone },
-    select: { id: true, approved: true, availability: true },
-  });
-
   return json({
+    role: "customer" as const,
     user: { id: customer.id, phone: customer.phone, name: customer.name },
-    rider: rider
-      ? { id: rider.id, approved: rider.approved, online: rider.availability === "ONLINE" }
-      : null,
+    rider: null,
   });
 });
 
@@ -41,5 +53,8 @@ export const PATCH = api(async (req) => {
     where: { id: user.sub },
     data: { name: name.trim() },
   });
-  return json({ user: { id: customer.id, phone: customer.phone, name: customer.name } });
+  return json({
+    role: "customer" as const,
+    user: { id: customer.id, phone: customer.phone, name: customer.name },
+  });
 });

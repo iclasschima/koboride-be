@@ -43,10 +43,6 @@ async function main() {
     },
   });
 
-  await prisma.customer.create({
-    data: { phone: tunde.phone, name: tunde.name },
-  });
-
   await prisma.order.create({
     data: {
       status: OrderStatus.dispatching,
@@ -101,7 +97,8 @@ async function main() {
   });
 
   console.info(`Admin: ${adminEmail} / ${adminPassword}`);
-  console.info("Customer: +2348011111111  Rider (approved): +2348012345678");
+  console.info("Customer login: +2348011111111");
+  console.info("Rider login: +2348012345678");
 }
 
 main()
