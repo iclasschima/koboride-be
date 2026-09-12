@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { phoneLookupKeys, preferredPhone } from "@/lib/phone";
+import { notifyAdminNewUser } from "@/lib/push";
 
 async function absorbCustomer(fromId: string, intoId: string) {
   if (fromId === intoId) return;
@@ -45,9 +46,11 @@ export async function findOrCreateCustomer(phoneInput: string, name?: string) {
   });
 
   if (matches.length === 0) {
-    return prisma.customer.create({
+    const customer = await prisma.customer.create({
       data: { phone: canonical, name: name?.trim() || undefined },
     });
+    await notifyAdminNewUser(customer);
+    return customer;
   }
 
   return mergeGroup(matches, canonical, name);

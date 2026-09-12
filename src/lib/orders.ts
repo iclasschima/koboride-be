@@ -4,7 +4,7 @@ import { AppError } from "@/lib/errors";
 import { config } from "@/lib/config";
 import { quoteRoute } from "@/lib/fare";
 import { preferredPhone } from "@/lib/phone";
-import { notifyOrderAccepted, notifySearchingRider } from "@/lib/push";
+import { notifyAdminNewOrder, notifyOrderAccepted, notifySearchingRider } from "@/lib/push";
 
 export const orderInclude = {
   rider: { select: { id: true, name: true, phone: true } },
@@ -204,6 +204,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
 
   if (order.riderId) await notifyOrderAccepted(order);
   else await notifySearchingRider(order);
+  await notifyAdminNewOrder(order);
 
   return order;
 }
