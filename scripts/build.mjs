@@ -16,4 +16,5 @@ function run(command) {
 run("npx prisma generate");
 if (realUrl) run("npx prisma migrate deploy");
 else console.warn("DATABASE_URL is not set — skipping migrate deploy");
+run("rm -rf .next");
 run("npx next build");
