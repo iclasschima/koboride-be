@@ -2,6 +2,7 @@ import { api, json, options, AppError } from "@/lib/errors";
 import { requireUser } from "@/lib/auth";
 import { assertCustomerOwns, getOrderOrThrow, orderInclude, presentTrip } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
+import { notifyAdminOrderStatus } from "@/lib/push";
 
 export const OPTIONS = () => options();
 
@@ -21,5 +22,6 @@ export const POST = api(async (req, ctx) => {
     data: { status: "cancelled" },
     include: orderInclude,
   });
+  await notifyAdminOrderStatus(updated);
   return json({ trip: presentTrip(updated) });
 });

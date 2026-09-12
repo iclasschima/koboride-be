@@ -2,7 +2,7 @@ import { api, json, options, AppError } from "@/lib/errors";
 import { requireRider } from "@/lib/auth";
 import { getOrderOrThrow, nextPhase, orderInclude, presentTrip } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
-import { notifyOrderDelivered } from "@/lib/push";
+import { notifyAdminOrderStatus, notifyOrderDelivered } from "@/lib/push";
 
 export const OPTIONS = () => options();
 
@@ -27,6 +27,9 @@ export const POST = api(async (req, ctx) => {
   });
   if (riderPhase === "delivered" && order.riderPhase !== "delivered") {
     await notifyOrderDelivered(updated);
+  }
+  if (riderPhase !== order.riderPhase) {
+    await notifyAdminOrderStatus(updated);
   }
   return json({ trip: presentTrip(updated) });
 });

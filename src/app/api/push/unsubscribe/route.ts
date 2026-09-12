@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 export const OPTIONS = () => options();
 
 export const POST = api(async (req) => {
-  const user = requireUser(req, ["customer", "rider"]);
+  const user = requireUser(req, ["customer", "rider", "admin"]);
   const { endpoint } = parseBody(
     z.object({ endpoint: z.string().url() }),
     await readJson(req),

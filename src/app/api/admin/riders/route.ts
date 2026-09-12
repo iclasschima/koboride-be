@@ -4,6 +4,7 @@ import { parseBody, readJson } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizePhone, phoneLookupKeys } from "@/lib/phone";
+import { notifyAdminNewUser } from "@/lib/push";
 
 export const OPTIONS = () => options();
 
@@ -48,5 +49,8 @@ export const POST = api(async (req) => {
     : await prisma.rider.create({
         data: { phone, name: body.name.trim(), approved: true, availability: "OFFLINE" },
       });
+  if (!existing) {
+    await notifyAdminNewUser({ name: rider.name, phone: rider.phone, kind: "rider" });
+  }
   return json({ rider: asOpsUser(rider) }, 201);
 });

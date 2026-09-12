@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { orderInclude, type OrderRow } from "@/lib/orders";
-import { notifyOrderAccepted } from "@/lib/push";
+import { notifyAdminOrderStatus, notifyOrderAccepted } from "@/lib/push";
 
 export async function findDispatchRider() {
   const riders = await prisma.rider.findMany({
@@ -36,5 +36,6 @@ export async function autoAssignOrder(orderId: string): Promise<OrderRow | null>
     include: orderInclude,
   });
   await notifyOrderAccepted(order);
+  await notifyAdminOrderStatus(order);
   return order;
 }

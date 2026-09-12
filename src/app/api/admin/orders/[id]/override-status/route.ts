@@ -5,7 +5,12 @@ import { parseBody, readJson } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
 import { getOrderOrThrow, orderInclude, presentTrip } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
-import { notifyOrderAccepted, notifyOrderDelivered, notifySearchingRider } from "@/lib/push";
+import {
+  notifyAdminOrderStatus,
+  notifyOrderAccepted,
+  notifyOrderDelivered,
+  notifySearchingRider,
+} from "@/lib/push";
 
 export const OPTIONS = () => options();
 
@@ -63,6 +68,9 @@ export const POST = api(async (req, ctx) => {
     (updated.status === "in_progress" || updated.status === "completed")
   ) {
     await notifyOrderDelivered(updated);
+  }
+  if (order.status !== updated.status || order.riderPhase !== updated.riderPhase) {
+    await notifyAdminOrderStatus(updated);
   }
 
   return json({ trip: presentTrip(updated) });

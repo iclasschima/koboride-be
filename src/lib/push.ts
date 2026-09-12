@@ -148,3 +148,69 @@ export async function notifyOrderDelivered(order: {
     url: `/trips/${order.id}`,
   });
 }
+
+export async function sendPushToAdmins(payload: PushPayload): Promise<void> {
+  await runPush(async () => {
+    const rows = await prisma.pushSubscription.findMany({ where: { role: "admin" } });
+    if (rows.length === 0) return;
+    await sendToRecords(rows, payload);
+  });
+}
+
+function adminOrderLabel(order: { status: string; riderPhase: string | null }): string {
+  if (order.status === "dispatching") return "Searching for a rider";
+  if (order.status === "cancelled") return "Order cancelled";
+  if (order.status === "completed") return "Order completed";
+  switch (order.riderPhase) {
+    case "accepted":
+      return "Rider accepted";
+    case "en_route_pickup":
+      return "Rider heading to pickup";
+    case "collected":
+      return "Package collected";
+    case "en_route_dropoff":
+      return "Heading to drop-off";
+    case "delivered":
+      return "Marked delivered";
+    default:
+      return "Order updated";
+  }
+}
+
+export async function notifyAdminNewOrder(order: {
+  id: string;
+  pickup: string;
+  dropoff: string;
+}): Promise<void> {
+  await sendPushToAdmins({
+    title: "New order",
+    body: `${order.pickup} → ${order.dropoff}`,
+    url: `/admin/orders/${order.id}`,
+  });
+}
+
+export async function notifyAdminOrderStatus(order: {
+  id: string;
+  status: string;
+  riderPhase: string | null;
+  pickup: string;
+}): Promise<void> {
+  await sendPushToAdmins({
+    title: adminOrderLabel(order),
+    body: order.pickup,
+    url: `/admin/orders/${order.id}`,
+  });
+}
+
+export async function notifyAdminNewUser(user: {
+  name: string | null;
+  phone: string;
+  kind?: "customer" | "rider";
+}): Promise<void> {
+  const rider = user.kind === "rider";
+  await sendPushToAdmins({
+    title: rider ? "New rider" : "New customer",
+    body: user.name?.trim() || user.phone,
+    url: rider ? "/admin/riders" : "/admin/users",
+  });
+}
