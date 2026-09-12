@@ -29,6 +29,7 @@ The frontend (`koboride-fe`) should set `NEXT_PUBLIC_API_URL=http://localhost:30
 | GET/PATCH | `/api/auth/me` `{ name }` | JWT role: customer, rider, or admin |
 | GET | `/api/places/autocomplete?q=&session=` | Google Places |
 | GET | `/api/places/details?id=&session=` | |
+| POST | `/api/orders/estimate-fare` | coords; 400 `DISTANCE_EXCEEDS_MAX` or `OUTSIDE_SERVICE_AREA` |
 | GET/POST | `/api/orders` | coords required on create |
 | GET | `/api/orders/:id` | |
 | POST | `/api/push/subscribe` | save Web Push subscription for the JWT user |
@@ -60,7 +61,7 @@ Web Push is additive (polling stays). Customers get a push when a rider accepts 
 
 Location search uses Places API (New) (`GOOGLE_PLACES_API_KEY`). Empty search on the app is Yaba shortcuts; typing hits Google, biased to Yaba.
 
-Fare is **₦1,000 flat** when both points are inside the Yaba box. Anything outside is rejected. Rider payout is 80%. Tune with `YABA_FLAT_FEE_NGN`.
+Fare is **₦1,000 flat** when both points are inside the Yaba box. Anything outside is rejected (`OUTSIDE_SERVICE_AREA`). Independently, road distance above `MAX_DELIVERY_DISTANCE_KM` (default 10) is rejected (`DISTANCE_EXCEEDS_MAX`) before a fee is quoted. Rider payout is 80%. Tune with `YABA_FLAT_FEE_NGN`.
 
 ## Deploy
 
@@ -112,6 +113,7 @@ You can also skip the laptop migrate step: the API **build** already runs `prism
 | `GOOGLE_PLACES_API_KEY` | Places API (New) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | `npx web-push generate-vapid-keys` (same public key as the frontend) |
 | `YABA_FLAT_FEE_NGN` | `1000` |
+| `MAX_DELIVERY_DISTANCE_KM` | `10` |
 | `PLATFORM_CUT_PERCENT` | `20` |
 | `OTP_SKIP` | `true` until SMS is on |
 
@@ -164,6 +166,7 @@ DATABASE_URL="postgresql://..." ADMIN_EMAIL="you@koboride.ng" ADMIN_PASSWORD="a-
 | `GOOGLE_PLACES_API_KEY` | Places API (New) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | `npx web-push generate-vapid-keys` |
 | `YABA_FLAT_FEE_NGN` | `1000` |
+| `MAX_DELIVERY_DISTANCE_KM` | `10` |
 | `PLATFORM_CUT_PERCENT` | `20` |
 | `OTP_SKIP` | `true` until SMS is ready |
 

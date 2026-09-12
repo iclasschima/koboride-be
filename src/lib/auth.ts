@@ -1,6 +1,7 @@
 import jwt, { type SignOptions } from "jsonwebtoken";
 import { config } from "@/lib/config";
 import { AppError } from "@/lib/errors";
+import { findOrCreateCustomer } from "@/lib/customers";
 import { phoneLookupKeys, preferredPhone } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 import type { Rider } from "@prisma/client";
@@ -53,28 +54,46 @@ export async function requireRider(req: Request): Promise<{ user: AuthUser; ride
   return { user, rider };
 }
 
+export async function findApprovedRiderByPhone(phone: string) {
+  const keys = phoneLookupKeys(phone);
+  return prisma.rider.findFirst({
+    where: { approved: true, phone: { in: keys } },
+  });
+}
+
+export async function presentCustomer(customer: {
+  id: string;
+  phone: string;
+  name: string | null;
+}) {
+  const rider = await findApprovedRiderByPhone(customer.phone);
+  return {
+    id: customer.id,
+    phone: customer.phone,
+    name: customer.name,
+    isRider: Boolean(rider),
+  };
+}
+
 export async function signInCustomer(phoneInput: string, name?: string) {
-  const keys = phoneLookupKeys(phoneInput);
-  const existing = await prisma.customer.findFirst({ where: { phone: { in: keys } } });
-  const phone = existing?.phone ?? preferredPhone(phoneInput);
-  const customer = existing
-    ? await prisma.customer.update({
-        where: { id: existing.id },
-        data: name ? { name } : {},
-      })
-    : await prisma.customer.create({ data: { phone, name } });
+  const customer = await findOrCreateCustomer(phoneInput, name);
 
   const token = signToken({ sub: customer.id, role: "customer" });
   return {
     token,
     role: "customer" as const,
-    user: { id: customer.id, phone: customer.phone, name: customer.name },
+    user: await presentCustomer(customer),
   };
 }
 
 export async function signInRider(phoneInput: string) {
   const keys = phoneLookupKeys(phoneInput);
+  const phone = preferredPhone(phoneInput);
   const rider = await prisma.rider.findFirst({ where: { phone: { in: keys } } });
+  if (rider && rider.phone !== phone) {
+    await prisma.rider.update({ where: { id: rider.id }, data: { phone } });
+    rider.phone = phone;
+  }
   if (!rider) {
     throw new AppError(
       "No rider account for this number. Ask ops to add you.",

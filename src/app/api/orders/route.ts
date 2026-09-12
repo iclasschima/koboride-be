@@ -3,8 +3,13 @@ import { api, json, options, AppError } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { orderInclude, presentTrip, autoConfirmStaleDeliveries, placeOrder } from "@/lib/orders";
-import { preferredPhone } from "@/lib/phone";
+import {
+  orderInclude,
+  presentTrip,
+  autoConfirmStaleDeliveries,
+  placeOrder,
+  resolveCustomerContacts,
+} from "@/lib/orders";
 
 export const OPTIONS = () => options();
 
@@ -30,10 +35,11 @@ export const POST = api(async (req) => {
       pickupLng: z.number().finite(),
       dropoffLat: z.number().finite(),
       dropoffLng: z.number().finite(),
+      customerRole: z.enum(["sender", "receiver"]).optional(),
       senderName: z.string().min(2).max(80).optional(),
       senderPhone: z.string().min(7).max(20).optional(),
-      receiverName: z.string().min(2).max(80),
-      receiverPhone: z.string().min(7).max(20),
+      receiverName: z.string().min(2).max(80).optional(),
+      receiverPhone: z.string().min(7).max(20).optional(),
     }),
     await readJson(req),
   );
@@ -43,8 +49,15 @@ export const POST = api(async (req) => {
     throw new AppError("Customer not found", "NOT_FOUND", 404);
   }
 
-  const senderName = body.senderName?.trim() || customer.name?.trim() || "Customer";
-  const senderPhone = preferredPhone(body.senderPhone || customer.phone);
+  const contacts = resolveCustomerContacts({
+    customerRole: body.customerRole,
+    customerName: customer.name?.trim() || "Customer",
+    customerPhone: customer.phone,
+    senderName: body.senderName,
+    senderPhone: body.senderPhone,
+    receiverName: body.receiverName,
+    receiverPhone: body.receiverPhone,
+  });
 
   const order = await placeOrder({
     customerId: customer.id,
@@ -55,10 +68,7 @@ export const POST = api(async (req) => {
     pickupLng: body.pickupLng,
     dropoffLat: body.dropoffLat,
     dropoffLng: body.dropoffLng,
-    senderName,
-    senderPhone,
-    receiverName: body.receiverName.trim(),
-    receiverPhone: preferredPhone(body.receiverPhone),
+    ...contacts,
   });
 
   return json({ trip: presentTrip(order) }, 201);

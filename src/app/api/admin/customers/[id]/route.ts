@@ -2,6 +2,7 @@ import { api, json, options, AppError } from "@/lib/errors";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { orderInclude, presentTrip } from "@/lib/orders";
+import { phoneLookupKeys } from "@/lib/phone";
 
 export const OPTIONS = () => options();
 
@@ -22,8 +23,8 @@ export const GET = api(async (req, ctx) => {
   });
   if (!customer) throw new AppError("Customer not found", "NOT_FOUND", 404);
 
-  const rider = await prisma.rider.findUnique({
-    where: { phone: customer.phone },
+  const rider = await prisma.rider.findFirst({
+    where: { phone: { in: phoneLookupKeys(customer.phone) } },
     select: { id: true, approved: true },
   });
 
