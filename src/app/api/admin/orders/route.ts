@@ -3,8 +3,14 @@ import { api, json, options } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { autoConfirmStaleDeliveries, orderInclude, placeOrder, presentTrip } from "@/lib/orders";
-import { phoneLookupKeys, preferredPhone } from "@/lib/phone";
+import {
+  autoConfirmStaleDeliveries,
+  orderInclude,
+  placeOrder,
+  presentTrip,
+  resolveCustomerContacts,
+} from "@/lib/orders";
+import { findOrCreateCustomer } from "@/lib/customers";
 
 export const OPTIONS = () => options();
 
@@ -32,29 +38,27 @@ export const POST = api(async (req) => {
       pickupLng: z.number().finite(),
       dropoffLat: z.number().finite(),
       dropoffLng: z.number().finite(),
+      customerRole: z.enum(["sender", "receiver"]).optional(),
       senderName: z.string().min(2).max(80).optional(),
       senderPhone: z.string().min(7).max(20).optional(),
-      receiverName: z.string().min(2).max(80),
-      receiverPhone: z.string().min(7).max(20),
+      receiverName: z.string().min(2).max(80).optional(),
+      receiverPhone: z.string().min(7).max(20).optional(),
       riderId: z.string().min(1).optional(),
     }),
     await readJson(req),
   );
 
-  const keys = phoneLookupKeys(body.customerPhone);
-  const existing = await prisma.customer.findFirst({ where: { phone: { in: keys } } });
-  const name = body.customerName?.trim();
-  const customer = existing
-    ? await prisma.customer.update({
-        where: { id: existing.id },
-        data: name ? { name } : {},
-      })
-    : await prisma.customer.create({
-        data: { phone: preferredPhone(body.customerPhone), name: name || undefined },
-      });
+  const customer = await findOrCreateCustomer(body.customerPhone, body.customerName);
 
-  const senderName = body.senderName?.trim() || customer.name?.trim() || name || "Customer";
-  const senderPhone = preferredPhone(body.senderPhone || customer.phone);
+  const contacts = resolveCustomerContacts({
+    customerRole: body.customerRole,
+    customerName: customer.name?.trim() || body.customerName?.trim() || "Customer",
+    customerPhone: customer.phone,
+    senderName: body.senderName,
+    senderPhone: body.senderPhone,
+    receiverName: body.receiverName,
+    receiverPhone: body.receiverPhone,
+  });
 
   const order = await placeOrder({
     customerId: customer.id,
@@ -65,10 +69,7 @@ export const POST = api(async (req) => {
     pickupLng: body.pickupLng,
     dropoffLat: body.dropoffLat,
     dropoffLng: body.dropoffLng,
-    senderName,
-    senderPhone,
-    receiverName: body.receiverName.trim(),
-    receiverPhone: preferredPhone(body.receiverPhone),
+    ...contacts,
     riderId: body.riderId,
   });
 

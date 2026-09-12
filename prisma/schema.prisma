@@ -27,6 +27,11 @@ enum RiderAvailability {
   ONLINE
 }
 
+enum CustomerRole {
+  sender
+  receiver
+}
+
 model Customer {
   id        String   @id @default(cuid())
   phone     String   @unique
@@ -102,6 +107,7 @@ model Order {
   senderPhone    String   @default("")
   receiverName   String   @default("")
   receiverPhone  String   @default("")
+  customerRole   CustomerRole @default(sender)
 
   feeNgn      Int
   payoutNgn   Int

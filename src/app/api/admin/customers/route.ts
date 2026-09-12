@@ -1,11 +1,14 @@
 import { api, json, options } from "@/lib/errors";
 import { requireUser } from "@/lib/auth";
+import { reconcileDuplicateCustomers } from "@/lib/customers";
+import { samePhone } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 
 export const OPTIONS = () => options();
 
 export const GET = api(async (req) => {
   requireUser(req, ["admin"]);
+  await reconcileDuplicateCustomers();
 
   const [customers, riders] = await Promise.all([
     prisma.customer.findMany({
@@ -26,8 +29,6 @@ export const GET = api(async (req) => {
     prisma.rider.findMany({ select: { phone: true } }),
   ]);
 
-  const riderPhones = new Set(riders.map((r) => r.phone));
-
   const spend = await prisma.order.groupBy({
     by: ["customerId"],
     where: { status: { in: ["in_progress", "completed"] } },
@@ -47,7 +48,7 @@ export const GET = api(async (req) => {
         lastOrderAt: last?.createdAt.toISOString() ?? null,
         lastOrderStatus: last?.status ?? null,
         spentNgn: spentByCustomer.get(customer.id) ?? 0,
-        isRider: riderPhones.has(customer.phone),
+        isRider: riders.some((r) => samePhone(r.phone, customer.phone)),
       };
     }),
   });

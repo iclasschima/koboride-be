@@ -3,7 +3,7 @@ import { api, json, options } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { normalizePhone } from "@/lib/phone";
+import { normalizePhone, phoneLookupKeys } from "@/lib/phone";
 
 export const OPTIONS = () => options();
 
@@ -37,10 +37,16 @@ export const POST = api(async (req) => {
     await readJson(req),
   );
   const phone = normalizePhone(body.phone);
-  const rider = await prisma.rider.upsert({
-    where: { phone },
-    create: { phone, name: body.name.trim(), approved: true, availability: "OFFLINE" },
-    update: { name: body.name.trim(), approved: true },
+  const existing = await prisma.rider.findFirst({
+    where: { phone: { in: phoneLookupKeys(body.phone) } },
   });
+  const rider = existing
+    ? await prisma.rider.update({
+        where: { id: existing.id },
+        data: { phone, name: body.name.trim(), approved: true },
+      })
+    : await prisma.rider.create({
+        data: { phone, name: body.name.trim(), approved: true, availability: "OFFLINE" },
+      });
   return json({ rider: asOpsUser(rider) }, 201);
 });

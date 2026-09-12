@@ -1,8 +1,9 @@
-import type { Prisma, RiderPhase } from "@prisma/client";
+import type { CustomerRole, Prisma, RiderPhase } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { config } from "@/lib/config";
 import { quoteRoute } from "@/lib/fare";
+import { preferredPhone } from "@/lib/phone";
 import { notifyOrderAccepted, notifySearchingRider } from "@/lib/push";
 
 export const orderInclude = {
@@ -71,6 +72,7 @@ export function presentTrip(order: OrderRow) {
     senderPhone: order.senderPhone,
     receiverName: order.receiverName,
     receiverPhone: order.receiverPhone,
+    customerRole: order.customerRole,
     feeNgn: order.feeNgn,
     status: order.status,
     riderPhase: order.riderPhase,
@@ -115,11 +117,60 @@ export type PlaceOrderInput = {
   senderPhone: string;
   receiverName: string;
   receiverPhone: string;
+  customerRole?: CustomerRole;
   riderId?: string;
 };
 
+export function resolveCustomerContacts(input: {
+  customerRole?: CustomerRole | string | null;
+  customerName: string;
+  customerPhone: string;
+  senderName?: string;
+  senderPhone?: string;
+  receiverName?: string;
+  receiverPhone?: string;
+}): {
+  customerRole: CustomerRole;
+  senderName: string;
+  senderPhone: string;
+  receiverName: string;
+  receiverPhone: string;
+} {
+  const role: CustomerRole = input.customerRole === "receiver" ? "receiver" : "sender";
+  const meName = input.customerName.trim() || "Customer";
+  const mePhone = preferredPhone(input.customerPhone);
+
+  if (role === "receiver") {
+    const senderName = input.senderName?.trim() ?? "";
+    const senderPhone = input.senderPhone?.trim() ?? "";
+    if (senderName.length < 2 || senderPhone.length < 7) {
+      throw new AppError("Add the sender name and phone", "VALIDATION_ERROR", 400);
+    }
+    return {
+      customerRole: "receiver",
+      senderName,
+      senderPhone: preferredPhone(senderPhone),
+      receiverName: input.receiverName?.trim() || meName,
+      receiverPhone: preferredPhone(input.receiverPhone || mePhone),
+    };
+  }
+
+  const receiverName = input.receiverName?.trim() ?? "";
+  const receiverPhone = input.receiverPhone?.trim() ?? "";
+  if (receiverName.length < 2 || receiverPhone.length < 7) {
+    throw new AppError("Add the receiver name and phone", "VALIDATION_ERROR", 400);
+  }
+  return {
+    customerRole: "sender",
+    senderName: input.senderName?.trim() || meName,
+    senderPhone: preferredPhone(input.senderPhone || mePhone),
+    receiverName,
+    receiverPhone: preferredPhone(receiverPhone),
+  };
+}
+
 export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
-  const quote = quoteRoute(input);
+  const quote = await quoteRoute(input);
   let riderId: string | undefined;
   if (input.riderId) {
     const rider = await prisma.rider.findUnique({ where: { id: input.riderId } });
@@ -137,6 +188,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
       senderPhone: input.senderPhone,
       receiverName: input.receiverName,
       receiverPhone: input.receiverPhone,
+      customerRole: input.customerRole ?? "sender",
       pickupLat: quote.pickupLat,
       pickupLng: quote.pickupLng,
       dropoffLat: quote.dropoffLat,

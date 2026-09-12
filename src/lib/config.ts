@@ -6,6 +6,14 @@ function intEnv(name: string, fallback: number): number {
   return n;
 }
 
+function floatEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const n = Number.parseFloat(raw);
+  if (!Number.isFinite(n) || n <= 0) throw new Error(`${name} must be a positive number`);
+  return n;
+}
+
 export const config = {
   jwtSecret: process.env.JWT_SECRET ?? "dev-only-insecure-secret",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "14d",
@@ -13,6 +21,8 @@ export const config = {
   baseFeeNgn: intEnv("BASE_FEE_NGN", 1000),
   perKmFeeNgn: intEnv("PER_KM_FEE_NGN", 200),
   yabaFlatFeeNgn: intEnv("YABA_FLAT_FEE_NGN", 1000),
+  /** Hard global bicycle-delivery cap. Independent of the Yaba zone box. */
+  maxDeliveryDistanceKm: floatEnv("MAX_DELIVERY_DISTANCE_KM", 10),
   platformCutPercent: intEnv("PLATFORM_CUT_PERCENT", 20),
 
   sendchampPublicKey: process.env.SENDCHAMP_PUBLIC_KEY ?? "",
