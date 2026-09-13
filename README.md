@@ -18,6 +18,8 @@ OTP is skipped when `OTP_SKIP=true` (development). Each user type has its own lo
 
 The frontend (`koboride-fe`) should set `NEXT_PUBLIC_API_URL=http://localhost:3001`.
 
+Shared staging is the **`develop`** branch on both repos. Production is **`main`**. See [CONTRIBUTING.md](./CONTRIBUTING.md).
+
 | Method | Path | Notes |
 | ------ | ---- | ----- |
 | GET | `/api/health` | uptime |
@@ -34,7 +36,7 @@ The frontend (`koboride-fe`) should set `NEXT_PUBLIC_API_URL=http://localhost:30
 | GET | `/api/orders/:id` | |
 | POST | `/api/push/subscribe` | save Web Push subscription for the JWT user |
 | POST | `/api/push/unsubscribe` | `{ endpoint }` |
-| POST | `/api/orders/:id/cancel` | |
+| POST | `/api/orders/:id/cancel` | before pickup; 429 `CANCEL_LIMIT_REACHED` (3 / 24h) |
 | POST | `/api/orders/:id/auto-assign` | first available / only rider |
 | POST | `/api/orders/:id/accept` | rider claims a waiting job |
 | POST | `/api/orders/:id/confirm` | |
@@ -57,11 +59,13 @@ The frontend (`koboride-fe`) should set `NEXT_PUBLIC_API_URL=http://localhost:30
 
 Trip `status`: `dispatching` → `in_progress` → `completed`. Rider taps advance `riderPhase`. After the rider marks **delivered**, the customer can confirm, or the order auto-completes after `AUTO_CONFIRM_MINUTES` (default 15).
 
+Customers can cancel until the rider picks up the package (`dispatching`, or `in_progress` before `collected`). After that, cancel is blocked (`ALREADY_PICKED_UP`). A customer can cancel at most `MAX_CANCELS_PER_WINDOW` times in `CANCEL_WINDOW_HOURS` (defaults: 3 per 24 hours); further cancels return 429 `CANCEL_LIMIT_REACHED`. The assigned rider gets a push if the job is cancelled after accept.
+
 Web Push is additive (polling stays). Customers get a push when a rider accepts or marks delivered. Online riders get a push when a new order is waiting. Users opt in from Account / Profile — if they have no `PushSubscription`, sends are skipped.
 
 Location search uses Places API (New) (`GOOGLE_PLACES_API_KEY`). Empty search on the app is Yaba shortcuts; typing hits Google, biased to Yaba.
 
-Fare is **₦1,000 flat** when both points are inside the Yaba box. Anything outside is rejected (`OUTSIDE_SERVICE_AREA`). Independently, road distance above `MAX_DELIVERY_DISTANCE_KM` (default 10) is rejected (`DISTANCE_EXCEEDS_MAX`) before a fee is quoted. Rider payout is 80%. Tune with `YABA_FLAT_FEE_NGN`.
+Fare is **₦1,000 flat** when both points are inside the Yaba box. Anything outside is rejected (`OUTSIDE_SERVICE_AREA`). Independently, road distance above `MAX_DELIVERY_DISTANCE_KM` (default 10) is rejected (`DISTANCE_EXCEEDS_MAX`) before a fee is quoted. That quoted road distance is stored on the order as `distanceKm` and shown in admin (per order and completed totals). Rider payout is 80%. Tune with `YABA_FLAT_FEE_NGN`.
 
 ## Deploy
 
@@ -89,7 +93,7 @@ You can also skip the laptop migrate step: the API **build** already runs `prism
 
 **B. Web service**
 
-1. **New → Web Service** → connect `iclasschima/koboride-be` (`main`).
+1. **New → Web Service** → connect `iclasschima/koboride-be` (`main` for production, `develop` for staging — use a **separate** Postgres). See [CONTRIBUTING.md](./CONTRIBUTING.md).
 2. Settings:
 
 | Field | Value |

@@ -40,6 +40,10 @@ export const config = {
   isProd: process.env.NODE_ENV === "production",
   /** Minutes after the rider marks delivered before the order auto-completes. */
   autoConfirmMinutes: intEnv("AUTO_CONFIRM_MINUTES", 15),
+  /** Customer-initiated cancels allowed in the rolling window. */
+  maxCancelsPerWindow: intEnv("MAX_CANCELS_PER_WINDOW", 3),
+  /** Hours that window covers (default 24). */
+  cancelWindowHours: intEnv("CANCEL_WINDOW_HOURS", 24),
 };
 
 export function riderPayoutNgn(feeNgn: number): number {

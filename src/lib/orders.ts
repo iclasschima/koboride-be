@@ -4,7 +4,11 @@ import { AppError } from "@/lib/errors";
 import { config } from "@/lib/config";
 import { quoteRoute } from "@/lib/fare";
 import { preferredPhone } from "@/lib/phone";
-import { notifyAdminNewOrder, notifyOrderAccepted, notifySearchingRider } from "@/lib/push";
+import {
+  notifyAdminNewOrder,
+  notifyOrderAccepted,
+  notifySearchingRider,
+} from "@/lib/push";
 
 export const orderInclude = {
   rider: { select: { id: true, name: true, phone: true } },
@@ -49,7 +53,10 @@ export async function autoConfirmStaleDeliveries(): Promise<void> {
 }
 
 export async function getOrderOrThrow(id: string): Promise<OrderRow> {
-  const order = await prisma.order.findUnique({ where: { id }, include: orderInclude });
+  const order = await prisma.order.findUnique({
+    where: { id },
+    include: orderInclude,
+  });
   if (!order) throw new AppError("Order not found", "ORDER_NOT_FOUND", 404);
   if (isDeliveredAwaitingConfirm(order) && isAutoConfirmDue(order)) {
     return prisma.order.update({
@@ -83,6 +90,7 @@ export function presentTrip(order: OrderRow) {
     customerPhone: order.customer?.phone ?? null,
     payoutNgn: order.payoutNgn,
     payoutPaid: order.payoutPaid,
+    distanceKm: order.distanceKm,
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),
     autoConfirmInMs: awaiting
@@ -98,9 +106,52 @@ export function nextPhase(phase: RiderPhase | null): RiderPhase | null {
   return RIDER_PHASES[i + 1]!;
 }
 
-export function assertCustomerOwns(order: { customerId: string }, userId: string) {
+export function assertCustomerOwns(
+  order: { customerId: string },
+  userId: string,
+) {
   if (order.customerId !== userId) {
     throw new AppError("This order does not belong to you", "FORBIDDEN", 403);
+  }
+}
+
+const PICKED_UP: RiderPhase[] = ["collected", "en_route_dropoff", "delivered"];
+
+export function customerCanCancel(order: {
+  status: string;
+  riderPhase: RiderPhase | null;
+}): boolean {
+  if (order.status === "dispatching") return true;
+  if (order.status !== "in_progress") return false;
+  return !order.riderPhase || !PICKED_UP.includes(order.riderPhase);
+}
+
+export async function assertCustomerCancelAllowed(
+  customerId: string,
+  order: { status: string; riderPhase: RiderPhase | null },
+): Promise<void> {
+  if (!customerCanCancel(order)) {
+    throw new AppError(
+      "You can only cancel before the rider picks up the package",
+      "ALREADY_PICKED_UP",
+      409,
+    );
+  }
+
+  const since = new Date(Date.now() - config.cancelWindowHours * 60 * 60 * 1000);
+  const recent = await prisma.order.count({
+    where: {
+      customerId,
+      status: "cancelled",
+      updatedAt: { gte: since },
+    },
+  });
+  if (recent >= config.maxCancelsPerWindow) {
+    throw new AppError(
+      `You've cancelled ${config.maxCancelsPerWindow} orders in the last ${config.cancelWindowHours} hours. Try again later.`,
+      "CANCEL_LIMIT_REACHED",
+      429,
+    );
   }
 }
 
@@ -136,7 +187,8 @@ export function resolveCustomerContacts(input: {
   receiverName: string;
   receiverPhone: string;
 } {
-  const role: CustomerRole = input.customerRole === "receiver" ? "receiver" : "sender";
+  const role: CustomerRole =
+    input.customerRole === "receiver" ? "receiver" : "sender";
   const meName = input.customerName.trim() || "Customer";
   const mePhone = preferredPhone(input.customerPhone);
 
@@ -144,7 +196,11 @@ export function resolveCustomerContacts(input: {
     const senderName = input.senderName?.trim() ?? "";
     const senderPhone = input.senderPhone?.trim() ?? "";
     if (senderName.length < 2 || senderPhone.length < 7) {
-      throw new AppError("Add the sender name and phone", "VALIDATION_ERROR", 400);
+      throw new AppError(
+        "Add the sender name and phone",
+        "VALIDATION_ERROR",
+        400,
+      );
     }
     return {
       customerRole: "receiver",
@@ -158,7 +214,11 @@ export function resolveCustomerContacts(input: {
   const receiverName = input.receiverName?.trim() ?? "";
   const receiverPhone = input.receiverPhone?.trim() ?? "";
   if (receiverName.length < 2 || receiverPhone.length < 7) {
-    throw new AppError("Add the receiver name and phone", "VALIDATION_ERROR", 400);
+    throw new AppError(
+      "Add the receiver name and phone",
+      "VALIDATION_ERROR",
+      400,
+    );
   }
   return {
     customerRole: "sender",
@@ -173,8 +233,11 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
   const quote = await quoteRoute(input);
   let riderId: string | undefined;
   if (input.riderId) {
-    const rider = await prisma.rider.findUnique({ where: { id: input.riderId } });
-    if (!rider?.approved) throw new AppError("Rider is not approved", "RIDER_NOT_APPROVED", 400);
+    const rider = await prisma.rider.findUnique({
+      where: { id: input.riderId },
+    });
+    if (!rider?.approved)
+      throw new AppError("Rider is not approved", "RIDER_NOT_APPROVED", 400);
     riderId = rider.id;
   }
 
@@ -195,8 +258,13 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
       dropoffLng: quote.dropoffLng,
       feeNgn: quote.feeNgn,
       payoutNgn: quote.payoutNgn,
+      distanceKm: quote.distanceKm,
       ...(riderId
-        ? { riderId, status: "in_progress" as const, riderPhase: "accepted" as const }
+        ? {
+            riderId,
+            status: "in_progress" as const,
+            riderPhase: "accepted" as const,
+          }
         : {}),
     },
     include: orderInclude,

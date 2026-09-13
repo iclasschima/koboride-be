@@ -113,6 +113,8 @@ model Order {
   feeNgn      Int
   payoutNgn   Int
   payoutPaid  Boolean     @default(false)
+  /** Road distance pickup → dropoff, stored at quote time (km). */
+  distanceKm  Float       @default(0)
 
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt

@@ -24,6 +24,10 @@ export function formatKm(km: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
+export function roundKm(km: number): number {
+  return Math.round(km * 1000) / 1000;
+}
+
 export function assertWithinMaxDeliveryDistance(distanceKm: number): void {
   const maxKm = config.maxDeliveryDistanceKm;
   if (distanceKm <= maxKm) return;
@@ -74,7 +78,7 @@ export async function quoteRoute(input: {
     pickupLng: input.pickupLng,
     dropoffLat: input.dropoffLat,
     dropoffLng: input.dropoffLng,
-    distanceKm,
+    distanceKm: roundKm(distanceKm),
     maxDistanceKm: config.maxDeliveryDistanceKm,
     feeNgn,
     payoutNgn: riderPayoutNgn(feeNgn),

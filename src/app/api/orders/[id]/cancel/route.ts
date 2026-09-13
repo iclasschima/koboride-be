@@ -1,8 +1,14 @@
 import { api, json, options, AppError } from "@/lib/errors";
 import { requireUser } from "@/lib/auth";
-import { assertCustomerOwns, getOrderOrThrow, orderInclude, presentTrip } from "@/lib/orders";
+import {
+  assertCustomerCancelAllowed,
+  assertCustomerOwns,
+  getOrderOrThrow,
+  orderInclude,
+  presentTrip,
+} from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
-import { notifyAdminOrderStatus } from "@/lib/push";
+import { notifyAdminOrderStatus, notifyRiderOrderCancelled } from "@/lib/push";
 
 export const OPTIONS = () => options();
 
@@ -13,9 +19,7 @@ export const POST = api(async (req, ctx) => {
 
   const order = await getOrderOrThrow(id);
   assertCustomerOwns(order, user.sub);
-  if (order.status !== "dispatching") {
-    throw new AppError("You can only cancel before a rider is assigned", "INVALID_STATUS", 409);
-  }
+  await assertCustomerCancelAllowed(user.sub, order);
 
   const updated = await prisma.order.update({
     where: { id: order.id },
@@ -23,5 +27,6 @@ export const POST = api(async (req, ctx) => {
     include: orderInclude,
   });
   await notifyAdminOrderStatus(updated);
+  if (updated.riderId) await notifyRiderOrderCancelled(updated);
   return json({ trip: presentTrip(updated) });
 });
