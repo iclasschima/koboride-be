@@ -67,6 +67,14 @@ export async function uploadRiderPhoto(riderId: string, file: File): Promise<str
   });
 }
 
+export async function uploadRiderIdDocument(riderId: string, file: File): Promise<string> {
+  return uploadImage(file, {
+    folder: "koboride/rider-ids",
+    publicId: riderId,
+    transformation: [{ width: 1600, height: 1600, crop: "limit", quality: "auto" }],
+  });
+}
+
 export async function uploadDeliveryProofPhoto(orderId: string, file: File): Promise<string | null> {
   if (!cloudinaryReady()) return null;
   try {

@@ -26,7 +26,6 @@ Do **not** reuse the production database, JWT secret, admin password, or VAPID k
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Staging ops login |
 | `GOOGLE_PLACES_API_KEY` | Same key is fine |
 | `VAPID_*` | New pair, or a dedicated staging pair. Match `NEXT_PUBLIC_VAPID_PUBLIC_KEY` on the staging frontend |
-| `OTP_SKIP` | `true` is fine on staging |
 
 5. Health: `https://<staging-api>.onrender.com/api/health`
 6. On the **frontend `develop`** service, set `NEXT_PUBLIC_API_URL` to that origin (no trailing slash).

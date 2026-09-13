@@ -157,7 +157,7 @@ export async function notifyOrderDelivered(order: {
 }): Promise<void> {
   await sendPushToUser(order.customerId, "customer", {
     title: "Your order was delivered",
-    body: "Confirm you received it",
+    body: "The rider entered the delivery code",
     url: `/trips/${order.id}`,
   });
 }

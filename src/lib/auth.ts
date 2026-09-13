@@ -46,8 +46,8 @@ export async function requireRider(req: Request): Promise<{ user: AuthUser; ride
   if (!rider) throw new AppError("Account not found", "NOT_FOUND", 404);
   if (!rider.approved) {
     throw new AppError(
-      "You're not yet approved. Contact the KoboRide team.",
-      "RIDER_NOT_APPROVED",
+      "This rider account is inactive. Contact the KoboRide team.",
+      "ACCOUNT_INACTIVE",
       403,
     );
   }
@@ -75,8 +75,18 @@ export async function presentCustomer(customer: {
   };
 }
 
+export function assertCustomerActive(customer: { active: boolean }): void {
+  if (customer.active) return;
+  throw new AppError(
+    "This account is inactive. Contact the KoboRide team.",
+    "ACCOUNT_INACTIVE",
+    403,
+  );
+}
+
 export async function signInCustomer(phoneInput: string, name?: string) {
   const customer = await findOrCreateCustomer(phoneInput, name);
+  assertCustomerActive(customer);
 
   const token = signToken({ sub: customer.id, role: "customer" });
   return {
@@ -99,6 +109,13 @@ export async function signInRider(phoneInput: string) {
       "No rider account for this number. Ask ops to add you.",
       "RIDER_NOT_FOUND",
       401,
+    );
+  }
+  if (!rider.approved) {
+    throw new AppError(
+      "This rider account is inactive. Contact the KoboRide team.",
+      "ACCOUNT_INACTIVE",
+      403,
     );
   }
 

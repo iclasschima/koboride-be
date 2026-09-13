@@ -32,10 +32,19 @@ enum CustomerRole {
   receiver
 }
 
+enum RiderIdType {
+  nin
+  drivers_license
+  voters_card
+  passport
+}
+
 model Customer {
   id        String   @id @default(cuid())
   phone     String   @unique
   name      String?
+  active    Boolean  @default(true)
+  cancelLimitResetAt DateTime?
   createdAt DateTime @default(now())
   orders    Order[]
 }
@@ -45,6 +54,12 @@ model Rider {
   phone        String            @unique
   name         String
   photoUrl     String?
+  idType       RiderIdType?
+  idNumber     String?
+  idDocumentUrl String?
+  nextOfKinName String?
+  nextOfKinPhone String?
+  nextOfKinRelationship String?
   approved     Boolean           @default(false)
   availability RiderAvailability @default(OFFLINE)
   createdAt    DateTime          @default(now())
@@ -56,6 +71,12 @@ model Admin {
   email        String   @unique
   passwordHash String
   createdAt    DateTime @default(now())
+}
+
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
 }
 
 model OtpCode {
@@ -122,6 +143,9 @@ model Order {
   deliveryProofNote String?
   deliveryProofPhotoUrl String?
 
+  cancelReason String?
+
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
+  completedAt DateTime?
 }

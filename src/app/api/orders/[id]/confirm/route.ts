@@ -1,6 +1,12 @@
 import { api, json, options, AppError } from "@/lib/errors";
 import { requireUser } from "@/lib/auth";
-import { assertCustomerOwns, getOrderOrThrow, orderInclude, presentTrip } from "@/lib/orders";
+import {
+  assertCustomerOwns,
+  getOrderOrThrow,
+  orderCompletedData,
+  orderInclude,
+  presentTrip,
+} from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 import { notifyAdminOrderStatus } from "@/lib/push";
 
@@ -20,7 +26,7 @@ export const POST = api(async (req, ctx) => {
 
   const updated = await prisma.order.update({
     where: { id: order.id },
-    data: { status: "completed", riderPhase: "delivered" },
+    data: orderCompletedData(),
     include: orderInclude,
   });
   await notifyAdminOrderStatus(updated);

@@ -109,6 +109,7 @@ async function main() {
       payoutPaid: false,
       deliveryPin: "1056",
       deliveryProof: "pin",
+      completedAt: new Date(),
     },
   });
 

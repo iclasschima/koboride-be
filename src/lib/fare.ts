@@ -1,4 +1,5 @@
 import { config, riderPayoutNgn } from "@/lib/config";
+import { getPlatformCutPercent } from "@/lib/settings";
 import { roadDistanceKm } from "@/lib/distance";
 import { AppError } from "@/lib/errors";
 import { isInActiveServiceArea } from "@/lib/zones";
@@ -72,6 +73,6 @@ export async function quoteRoute(input: {
     distanceKm: roundKm(distanceKm),
     maxDistanceKm: config.maxDeliveryDistanceKm,
     feeNgn,
-    payoutNgn: riderPayoutNgn(feeNgn),
+    payoutNgn: riderPayoutNgn(feeNgn, await getPlatformCutPercent()),
   };
 }

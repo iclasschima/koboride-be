@@ -14,7 +14,7 @@ npm run dev                   # :3001
 
 Admin: `admin@koboride.ng` / `ChangeMeNow!`
 
-OTP is skipped when `OTP_SKIP=true` (development). Each user type has its own login.
+Each user type has its own login. Customer and rider sign in with phone only — there is no SMS OTP.
 
 The frontend (`koboride-fe`) should set `NEXT_PUBLIC_API_URL=http://localhost:3001`.
 
@@ -32,14 +32,14 @@ Shared staging is the **`develop`** branch on both repos. Production is **`main`
 | GET | `/api/places/autocomplete?q=&session=` | Google Places |
 | GET | `/api/places/details?id=&session=` | |
 | POST | `/api/orders/estimate-fare` | coords; 400 `DISTANCE_EXCEEDS_MAX` or `OUTSIDE_SERVICE_AREA` |
-| GET/POST | `/api/orders` | coords required on create |
+| GET/POST | `/api/orders` | coords required on create; 429 `ACTIVE_ORDER_LIMIT_REACHED` |
 | GET | `/api/orders/:id` | |
 | POST | `/api/push/subscribe` | save Web Push subscription for the JWT user |
 | POST | `/api/push/unsubscribe` | `{ endpoint }` |
-| POST | `/api/orders/:id/cancel` | before pickup; 429 `CANCEL_LIMIT_REACHED` (3 / 24h) |
+| POST | `/api/orders/:id/cancel` | `{ reason, note? }` before pickup; 429 `CANCEL_LIMIT_REACHED` (3 / 24h) |
 | POST | `/api/orders/:id/auto-assign` | first available / only rider |
 | POST | `/api/orders/:id/accept` | rider claims a waiting job |
-| POST | `/api/orders/:id/confirm` | |
+| POST | `/api/orders/:id/confirm` | leftover delivered jobs; PIN already completes |
 | POST | `/api/orders/:id/status` | rider advances phase; to mark delivered send `{ pin }` or `{ skipReason }` (+ optional `photo`) |
 | POST | `/api/riders/photo` | multipart `photo`; Cloudinary |
 | POST | `/api/riders/availability` `{ online }` | |
@@ -48,25 +48,25 @@ Shared staging is the **`develop`** branch on both repos. Production is **`main`
 | GET | `/api/riders/earnings` | |
 | GET | `/api/places/reverse?lat=&lng=` | |
 | GET | `/api/admin/customers` | |
-| GET | `/api/admin/customers/:id` | |
+| GET/PATCH | `/api/admin/customers/:id` | PATCH `{ active }` or `{ resetCancelLimit }` |
+| GET/PATCH | `/api/admin/settings` | PATCH `{ maxActiveOrders, platformCutPercent }` |
 | GET/POST | `/api/admin/orders` | admin can create an order |
 | GET/DELETE | `/api/admin/orders/:id` | admin can permanently delete an order |
 | POST | `/api/admin/orders/:id/assign` `{ riderId }` | |
 | POST | `/api/admin/orders/:id/override-status` `{ status, phase? }` | |
 | POST | `/api/admin/orders/:id/mark-paid` | |
-| GET/POST | `/api/admin/riders` | |
-| PATCH | `/api/admin/riders/:id` `{ approved }` | |
-| DELETE | `/api/admin/riders/:id` | |
+| GET/POST | `/api/admin/riders` | multipart: name, phone, photo, government ID, next of kin |
+| GET/PATCH/DELETE | `/api/admin/riders/:id` | PATCH JSON or multipart including ID + next of kin |
 
-Trip `status`: `dispatching` → `in_progress` → `completed`. Rider taps advance `riderPhase`. Marking **delivered** requires the 4-digit `deliveryPin` shown on the customer tracking screen, or a documented fallback note (`skipReason`, optional photo) if the receiver cannot produce the PIN. After the rider marks delivered, the customer can confirm, or the order auto-completes after `AUTO_CONFIRM_MINUTES` (default 15).
+Trip `status`: `dispatching` → `in_progress` → `completed`. Rider taps advance `riderPhase`. Marking **delivered** requires the 4-digit `deliveryPin` shown on the customer tracking screen, or a documented fallback note (`skipReason`, optional photo) if the receiver cannot produce the PIN. Entering the PIN (or the fallback) completes the order immediately — no customer confirmation step. `completedAt` is stored at that moment; trip payloads include `durationSeconds` from create to complete.
 
-Customers can cancel until the rider picks up the package (`dispatching`, or `in_progress` before `collected`). After that, cancel is blocked (`ALREADY_PICKED_UP`). A customer can cancel at most `MAX_CANCELS_PER_WINDOW` times in `CANCEL_WINDOW_HOURS` (defaults: 3 per 24 hours); further cancels return 429 `CANCEL_LIMIT_REACHED`. The assigned rider gets a push if the job is cancelled after accept.
+Customers can cancel until the rider picks up the package (`dispatching`, or `in_progress` before `collected`). Cancel requires a reason. After pickup, cancel is blocked (`ALREADY_PICKED_UP`). A customer can cancel at most `MAX_CANCELS_PER_WINDOW` times in `CANCEL_WINDOW_HOURS` (defaults: 3 per 24 hours); further cancels return 429 `CANCEL_LIMIT_REACHED`. An admin can reset that window with `PATCH /api/admin/customers/:id` `{ resetCancelLimit: true }`. A customer can have at most `MAX_ACTIVE_ORDERS` live orders at once (default 3, overridable in Admin → Settings); a 4th create returns 429 `ACTIVE_ORDER_LIMIT_REACHED`. The assigned rider gets a push if the job is cancelled after accept.
 
 Web Push is additive (polling stays). Customers get a push when a rider accepts or marks delivered. Online riders get a push when a new order is waiting. Users opt in from Account / Profile — if they have no `PushSubscription`, sends are skipped.
 
 Location search uses Places API (New) (`GOOGLE_PLACES_API_KEY`). Empty search on the app is Yaba shortcuts; typing hits Google, biased to Yaba.
 
-Fare is **₦1,000 flat** inside the Yaba 4km circle (Alagomeji / Sabo). Outside that is `OUTSIDE_SERVICE_AREA`. Road distance above `MAX_DELIVERY_DISTANCE_KM` (default 10) is `DISTANCE_EXCEEDS_MAX`. Quoted km is stored as `distanceKm`. Rider payout is 85% (`PLATFORM_CUT_PERCENT=15`).
+Fare is **₦1,000 flat** inside the Yaba 4km circle (Alagomeji / Sabo). Outside that is `OUTSIDE_SERVICE_AREA`. Road distance above `MAX_DELIVERY_DISTANCE_KM` (default 10) is `DISTANCE_EXCEEDS_MAX`. Quoted km is stored as `distanceKm`. Rider payout is the fare minus `PLATFORM_CUT_PERCENT` (default 15, overridable in Admin → Settings).
 
 ## Deploy
 
@@ -129,7 +129,6 @@ You can also skip the laptop migrate step: the API **build** already runs `prism
 | `MAX_DELIVERY_DISTANCE_KM` | `10` |
 | `PLATFORM_CUT_PERCENT` | `15` |
 | `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | rider profile photos |
-| `OTP_SKIP` | `true` until SMS is on |
 
 4. Deploy. Open `https://your-service.onrender.com/api/health` → `{ "ok": true }`.
 5. Set the frontend `NEXT_PUBLIC_API_URL` to that origin (no trailing slash). Also set `NEXT_PUBLIC_VAPID_PUBLIC_KEY` to the same public VAPID key.
@@ -183,13 +182,12 @@ DATABASE_URL="postgresql://..." ADMIN_EMAIL="you@koboride.ng" ADMIN_PASSWORD="a-
 | `MAX_DELIVERY_DISTANCE_KM` | `10` |
 | `PLATFORM_CUT_PERCENT` | `15` |
 | `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | rider profile photos |
-| `OTP_SKIP` | `true` until SMS is ready |
 
 3. Deploy. `npm run build` runs `prisma migrate deploy` then `next build`.
 4. Check `https://your-api.vercel.app/api/health` → `{ "ok": true }`.
 5. Point the frontend `NEXT_PUBLIC_API_URL` at that origin (no trailing slash) and set `NEXT_PUBLIC_VAPID_PUBLIC_KEY`.
 
-Restrict the Google key to your Vercel API host when you can. Keep `OTP_SKIP=false` and set Sendchamp vars before real users.
+Restrict the Google key to your Vercel API host when you can.
 
 ### CORS
 
