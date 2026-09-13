@@ -25,14 +25,6 @@ export const config = {
   maxDeliveryDistanceKm: floatEnv("MAX_DELIVERY_DISTANCE_KM", 10),
   platformCutPercent: intEnv("PLATFORM_CUT_PERCENT", 15),
 
-  sendchampPublicKey: process.env.SENDCHAMP_PUBLIC_KEY ?? "",
-  sendchampSender: process.env.SENDCHAMP_SENDER ?? "ChampOTP",
-  sendchampBaseUrl: (process.env.SENDCHAMP_BASE_URL ?? "https://api.sendchamp.com/api/v1").replace(
-    /\/+$/,
-    "",
-  ),
-  otpDevEcho: process.env.OTP_DEV_ECHO === "true",
-  otpSkip: process.env.OTP_SKIP !== "false",
   googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY ?? "",
   vapidPublicKey: process.env.VAPID_PUBLIC_KEY ?? "",
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY ?? "",
@@ -40,15 +32,15 @@ export const config = {
   cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME ?? "",
   cloudinaryApiKey: process.env.CLOUDINARY_API_KEY ?? "",
   cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET ?? "",
-  isProd: process.env.NODE_ENV === "production",
-  /** Minutes after the rider marks delivered before the order auto-completes. */
-  autoConfirmMinutes: intEnv("AUTO_CONFIRM_MINUTES", 15),
   /** Customer-initiated cancels allowed in the rolling window. */
   maxCancelsPerWindow: intEnv("MAX_CANCELS_PER_WINDOW", 3),
   /** Hours that window covers (default 24). */
   cancelWindowHours: intEnv("CANCEL_WINDOW_HOURS", 24),
+  /** Default live orders per customer; Admin → Settings can raise this. */
+  maxActiveOrders: intEnv("MAX_ACTIVE_ORDERS", 3),
 };
 
-export function riderPayoutNgn(feeNgn: number): number {
-  return Math.round(feeNgn * (1 - config.platformCutPercent / 100));
+export function riderPayoutNgn(feeNgn: number, cutPercent = config.platformCutPercent): number {
+  const cut = Math.min(100, Math.max(0, cutPercent));
+  return Math.round(feeNgn * (1 - cut / 100));
 }

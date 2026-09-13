@@ -5,6 +5,7 @@ import { AppError } from "@/lib/errors";
 import { config } from "@/lib/config";
 import { quoteRoute } from "@/lib/fare";
 import { preferredPhone } from "@/lib/phone";
+import { getMaxActiveOrders } from "@/lib/settings";
 import {
   notifyAdminNewOrder,
   notifyOrderAccepted,
@@ -26,10 +27,6 @@ export const RIDER_PHASES: RiderPhase[] = [
   "delivered",
 ];
 
-function autoConfirmMs(): number {
-  return config.autoConfirmMinutes * 60 * 1000;
-}
-
 function isDeliveredAwaitingConfirm(order: {
   status: string;
   riderPhase: RiderPhase | null;
@@ -37,19 +34,30 @@ function isDeliveredAwaitingConfirm(order: {
   return order.status === "in_progress" && order.riderPhase === "delivered";
 }
 
-function isAutoConfirmDue(order: { updatedAt: Date }): boolean {
-  return Date.now() - order.updatedAt.getTime() >= autoConfirmMs();
+export function orderCompletedData(at = new Date()) {
+  return {
+    status: "completed" as const,
+    riderPhase: "delivered" as const,
+    completedAt: at,
+  };
 }
 
-/** Complete delivered jobs the customer never confirmed. */
+export function orderDurationSeconds(order: {
+  createdAt: Date;
+  completedAt: Date | null;
+}): number | null {
+  if (!order.completedAt) return null;
+  return Math.max(0, Math.round((order.completedAt.getTime() - order.createdAt.getTime()) / 1000));
+}
+
+/** Close leftover jobs that were marked delivered before PIN completed the order. */
 export async function autoConfirmStaleDeliveries(): Promise<void> {
   await prisma.order.updateMany({
     where: {
       status: "in_progress",
       riderPhase: "delivered",
-      updatedAt: { lte: new Date(Date.now() - autoConfirmMs()) },
     },
-    data: { status: "completed" },
+    data: orderCompletedData(),
   });
 }
 
@@ -59,10 +67,10 @@ export async function getOrderOrThrow(id: string): Promise<OrderRow> {
     include: orderInclude,
   });
   if (!order) throw new AppError("Order not found", "ORDER_NOT_FOUND", 404);
-  if (isDeliveredAwaitingConfirm(order) && isAutoConfirmDue(order)) {
+  if (isDeliveredAwaitingConfirm(order)) {
     return prisma.order.update({
       where: { id: order.id },
-      data: { status: "completed", riderPhase: "delivered" },
+      data: orderCompletedData(),
       include: orderInclude,
     });
   }
@@ -80,7 +88,6 @@ export function deliveryPinsMatch(expected: string, given: string): boolean {
 }
 
 function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
-  const awaiting = isDeliveredAwaitingConfirm(order);
   return {
     id: order.id,
     pickup: order.pickup,
@@ -104,14 +111,16 @@ function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
     payoutPaid: order.payoutPaid,
     distanceKm: order.distanceKm,
     deliveryPin: hideDeliveryPin ? null : order.deliveryPin,
+    requiresDeliveryPin: Boolean(order.deliveryPin),
     deliveryProof: order.deliveryProof,
     deliveryProofNote: order.deliveryProofNote,
     deliveryProofPhotoUrl: order.deliveryProofPhotoUrl,
+    cancelReason: order.cancelReason,
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),
-    autoConfirmInMs: awaiting
-      ? Math.max(0, order.updatedAt.getTime() + autoConfirmMs() - Date.now())
-      : null,
+    completedAt: order.completedAt?.toISOString() ?? null,
+    durationSeconds: orderDurationSeconds(order),
+    autoConfirmInMs: null,
   };
 }
 
@@ -150,6 +159,54 @@ export function customerCanCancel(order: {
   return !order.riderPhase || !PICKED_UP.includes(order.riderPhase);
 }
 
+export const CANCEL_REASONS = [
+  "Ordered by mistake",
+  "Wrong pickup or drop-off",
+  "Rider taking too long",
+  "Changed my mind",
+  "Receiver not available",
+  "Other",
+] as const;
+
+export function normalizeCancelReason(reason: string, note?: string): string {
+  const picked = reason.trim();
+  if (!(CANCEL_REASONS as readonly string[]).includes(picked)) {
+    throw new AppError("Choose why you are cancelling", "CANCEL_REASON_REQUIRED", 400);
+  }
+  if (picked !== "Other") return picked;
+  const extra = note?.trim() ?? "";
+  if (extra.length < 4) {
+    throw new AppError("Add a short note for Other", "CANCEL_REASON_REQUIRED", 400);
+  }
+  return `Other: ${extra.slice(0, 160)}`;
+}
+
+export function cancelWindowStart(resetAt?: Date | null): Date {
+  const windowStart = new Date(Date.now() - config.cancelWindowHours * 60 * 60 * 1000);
+  return resetAt && resetAt > windowStart ? resetAt : windowStart;
+}
+
+export const ACTIVE_ORDER_STATUSES = ["dispatching", "in_progress"] as const;
+
+export async function countActiveOrders(customerId: string): Promise<number> {
+  return prisma.order.count({
+    where: { customerId, status: { in: [...ACTIVE_ORDER_STATUSES] } },
+  });
+}
+
+export async function countRecentCancels(
+  customerId: string,
+  resetAt?: Date | null,
+): Promise<number> {
+  return prisma.order.count({
+    where: {
+      customerId,
+      status: "cancelled",
+      updatedAt: { gte: cancelWindowStart(resetAt) },
+    },
+  });
+}
+
 export async function assertCustomerCancelAllowed(
   customerId: string,
   order: { status: string; riderPhase: RiderPhase | null },
@@ -162,14 +219,11 @@ export async function assertCustomerCancelAllowed(
     );
   }
 
-  const since = new Date(Date.now() - config.cancelWindowHours * 60 * 60 * 1000);
-  const recent = await prisma.order.count({
-    where: {
-      customerId,
-      status: "cancelled",
-      updatedAt: { gte: since },
-    },
+  const customer = await prisma.customer.findUnique({
+    where: { id: customerId },
+    select: { cancelLimitResetAt: true },
   });
+  const recent = await countRecentCancels(customerId, customer?.cancelLimitResetAt);
   if (recent >= config.maxCancelsPerWindow) {
     throw new AppError(
       `You've cancelled ${config.maxCancelsPerWindow} orders in the last ${config.cancelWindowHours} hours. Try again later.`,
@@ -254,6 +308,16 @@ export function resolveCustomerContacts(input: {
 }
 
 export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
+  const customer = await prisma.customer.findUnique({ where: { id: input.customerId } });
+  if (!customer) throw new AppError("Customer not found", "NOT_FOUND", 404);
+  if (!customer.active) {
+    throw new AppError(
+      "This account is inactive. Contact the KoboRide team.",
+      "ACCOUNT_INACTIVE",
+      403,
+    );
+  }
+
   const quote = await quoteRoute(input);
   let riderId: string | undefined;
   if (input.riderId) {
@@ -265,34 +329,51 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
     riderId = rider.id;
   }
 
-  const order = await prisma.order.create({
-    data: {
-      customerId: input.customerId,
-      pickup: quote.pickup,
-      dropoff: quote.dropoff,
-      notes: input.notes.trim(),
-      senderName: input.senderName,
-      senderPhone: input.senderPhone,
-      receiverName: input.receiverName,
-      receiverPhone: input.receiverPhone,
-      customerRole: input.customerRole ?? "sender",
-      pickupLat: quote.pickupLat,
-      pickupLng: quote.pickupLng,
-      dropoffLat: quote.dropoffLat,
-      dropoffLng: quote.dropoffLng,
-      feeNgn: quote.feeNgn,
-      payoutNgn: quote.payoutNgn,
-      distanceKm: quote.distanceKm,
-      deliveryPin: generateDeliveryPin(),
-      ...(riderId
-        ? {
-            riderId,
-            status: "in_progress" as const,
-            riderPhase: "accepted" as const,
-          }
-        : {}),
-    },
-    include: orderInclude,
+  const maxActiveOrders = await getMaxActiveOrders();
+  const order = await prisma.$transaction(async (tx) => {
+    const active = await tx.order.count({
+      where: {
+        customerId: input.customerId,
+        status: { in: [...ACTIVE_ORDER_STATUSES] },
+      },
+    });
+    if (active >= maxActiveOrders) {
+      throw new AppError(
+        `You can have at most ${maxActiveOrders} live orders. Finish or cancel one first.`,
+        "ACTIVE_ORDER_LIMIT_REACHED",
+        429,
+      );
+    }
+
+    return tx.order.create({
+      data: {
+        customerId: input.customerId,
+        pickup: quote.pickup,
+        dropoff: quote.dropoff,
+        notes: input.notes.trim(),
+        senderName: input.senderName,
+        senderPhone: input.senderPhone,
+        receiverName: input.receiverName,
+        receiverPhone: input.receiverPhone,
+        customerRole: input.customerRole ?? "sender",
+        pickupLat: quote.pickupLat,
+        pickupLng: quote.pickupLng,
+        dropoffLat: quote.dropoffLat,
+        dropoffLng: quote.dropoffLng,
+        feeNgn: quote.feeNgn,
+        payoutNgn: quote.payoutNgn,
+        distanceKm: quote.distanceKm,
+        deliveryPin: generateDeliveryPin(),
+        ...(riderId
+          ? {
+              riderId,
+              status: "in_progress" as const,
+              riderPhase: "accepted" as const,
+            }
+          : {}),
+      },
+      include: orderInclude,
+    });
   });
 
   if (order.riderId) await notifyOrderAccepted(order);

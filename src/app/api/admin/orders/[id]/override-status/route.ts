@@ -3,7 +3,7 @@ import type { OrderStatus, RiderPhase } from "@prisma/client";
 import { api, json, options, AppError } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
-import { getOrderOrThrow, orderInclude, presentTrip } from "@/lib/orders";
+import { getOrderOrThrow, orderCompletedData, orderInclude, presentTrip } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 import {
   notifyAdminOrderStatus,
@@ -35,6 +35,7 @@ export const POST = api(async (req, ctx) => {
     status: OrderStatus;
     riderPhase: RiderPhase | null;
     riderId?: string | null;
+    completedAt?: Date | null;
   } = {
     status: body.status,
     riderPhase: order.riderPhase,
@@ -43,13 +44,21 @@ export const POST = api(async (req, ctx) => {
   if (body.status === "dispatching") {
     data.riderId = null;
     data.riderPhase = null;
+    data.completedAt = null;
   } else if (body.status === "in_progress") {
     if (!order.riderId) {
       throw new AppError("Assign a rider first", "NO_RIDER", 409);
     }
     data.riderPhase = body.phase ?? order.riderPhase ?? "accepted";
+    if (data.riderPhase === "delivered") {
+      Object.assign(data, orderCompletedData());
+    } else {
+      data.completedAt = null;
+    }
   } else if (body.status === "completed") {
-    data.riderPhase = "delivered";
+    Object.assign(data, order.completedAt ? { riderPhase: "delivered" } : orderCompletedData());
+  } else if (body.status === "cancelled") {
+    data.completedAt = null;
   }
 
   const updated = await prisma.order.update({

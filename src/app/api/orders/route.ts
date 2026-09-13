@@ -10,18 +10,30 @@ import {
   placeOrder,
   resolveCustomerContacts,
 } from "@/lib/orders";
+import { getMaxActiveOrders } from "@/lib/settings";
 
 export const OPTIONS = () => options();
 
 export const GET = api(async (req) => {
   const user = requireUser(req, ["customer"]);
   await autoConfirmStaleDeliveries();
-  const orders = await prisma.order.findMany({
-    where: { customerId: user.sub },
-    include: orderInclude,
-    orderBy: { createdAt: "desc" },
+  const [orders, maxActiveOrders] = await Promise.all([
+    prisma.order.findMany({
+      where: { customerId: user.sub },
+      include: orderInclude,
+      orderBy: { createdAt: "desc" },
+    }),
+    getMaxActiveOrders(),
+  ]);
+  const activeOrders = orders.filter(
+    (o) => o.status === "dispatching" || o.status === "in_progress",
+  ).length;
+  return json({
+    trips: orders.map(presentTrip),
+    activeOrders,
+    maxActiveOrders,
+    canPlaceOrder: activeOrders < maxActiveOrders,
   });
-  return json({ trips: orders.map(presentTrip) });
 });
 
 export const POST = api(async (req) => {

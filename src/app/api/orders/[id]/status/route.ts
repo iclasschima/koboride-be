@@ -5,6 +5,7 @@ import {
   deliveryPinsMatch,
   getOrderOrThrow,
   nextPhase,
+  orderCompletedData,
   orderInclude,
   presentRiderTrip,
 } from "@/lib/orders";
@@ -63,12 +64,14 @@ export const POST = api(async (req, ctx) => {
   const riderPhase = nextPhase(order.riderPhase);
   const data: {
     riderPhase: typeof riderPhase;
+    status?: "completed";
+    completedAt?: Date;
     deliveryProof?: string;
     deliveryProofNote?: string | null;
     deliveryProofPhotoUrl?: string | null;
   } = { riderPhase };
 
-  if (riderPhase === "delivered" && order.riderPhase !== "delivered") {
+  if (riderPhase === "delivered" && order.riderPhase !== "delivered" && order.deliveryPin) {
     const proof = await readProof(req);
     const pinOk = Boolean(proof.pin && deliveryPinsMatch(order.deliveryPin, proof.pin));
     const reason = proof.skipReason?.trim() ?? "";
@@ -90,6 +93,10 @@ export const POST = api(async (req, ctx) => {
         400,
       );
     }
+  }
+
+  if (riderPhase === "delivered" && order.riderPhase !== "delivered") {
+    Object.assign(data, orderCompletedData());
   }
 
   const updated = await prisma.order.update({
