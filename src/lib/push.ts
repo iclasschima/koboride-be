@@ -138,6 +138,19 @@ export async function notifyOrderAccepted(order: {
   });
 }
 
+export async function notifyRiderOrderCancelled(order: {
+  id: string;
+  riderId: string | null;
+  pickup: string;
+}): Promise<void> {
+  if (!order.riderId) return;
+  await sendPushToUser(order.riderId, "rider", {
+    title: "Order cancelled",
+    body: `The customer cancelled the pickup at ${order.pickup}`,
+    url: "/rider",
+  });
+}
+
 export async function notifyOrderDelivered(order: {
   id: string;
   customerId: string;
