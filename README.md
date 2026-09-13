@@ -40,7 +40,8 @@ Shared staging is the **`develop`** branch on both repos. Production is **`main`
 | POST | `/api/orders/:id/auto-assign` | first available / only rider |
 | POST | `/api/orders/:id/accept` | rider claims a waiting job |
 | POST | `/api/orders/:id/confirm` | |
-| POST | `/api/orders/:id/status` | rider advances phase |
+| POST | `/api/orders/:id/status` | rider advances phase; to mark delivered send `{ pin }` or `{ skipReason }` (+ optional `photo`) |
+| POST | `/api/riders/photo` | multipart `photo`; Cloudinary |
 | POST | `/api/riders/availability` `{ online }` | |
 | GET | `/api/riders/jobs` | |
 | GET | `/api/riders/available-jobs` | waiting orders |
@@ -57,7 +58,7 @@ Shared staging is the **`develop`** branch on both repos. Production is **`main`
 | PATCH | `/api/admin/riders/:id` `{ approved }` | |
 | DELETE | `/api/admin/riders/:id` | |
 
-Trip `status`: `dispatching` → `in_progress` → `completed`. Rider taps advance `riderPhase`. After the rider marks **delivered**, the customer can confirm, or the order auto-completes after `AUTO_CONFIRM_MINUTES` (default 15).
+Trip `status`: `dispatching` → `in_progress` → `completed`. Rider taps advance `riderPhase`. Marking **delivered** requires the 4-digit `deliveryPin` shown on the customer tracking screen, or a documented fallback note (`skipReason`, optional photo) if the receiver cannot produce the PIN. After the rider marks delivered, the customer can confirm, or the order auto-completes after `AUTO_CONFIRM_MINUTES` (default 15).
 
 Customers can cancel until the rider picks up the package (`dispatching`, or `in_progress` before `collected`). After that, cancel is blocked (`ALREADY_PICKED_UP`). A customer can cancel at most `MAX_CANCELS_PER_WINDOW` times in `CANCEL_WINDOW_HOURS` (defaults: 3 per 24 hours); further cancels return 429 `CANCEL_LIMIT_REACHED`. The assigned rider gets a push if the job is cancelled after accept.
 
@@ -65,11 +66,19 @@ Web Push is additive (polling stays). Customers get a push when a rider accepts 
 
 Location search uses Places API (New) (`GOOGLE_PLACES_API_KEY`). Empty search on the app is Yaba shortcuts; typing hits Google, biased to Yaba.
 
-Fare is **₦1,000 flat** when both points are inside the Yaba box. Anything outside is rejected (`OUTSIDE_SERVICE_AREA`). Independently, road distance above `MAX_DELIVERY_DISTANCE_KM` (default 10) is rejected (`DISTANCE_EXCEEDS_MAX`) before a fee is quoted. That quoted road distance is stored on the order as `distanceKm` and shown in admin (per order and completed totals). Rider payout is 80%. Tune with `YABA_FLAT_FEE_NGN`.
+Fare is **₦1,000 flat** inside the Yaba 4km circle (Alagomeji / Sabo). Outside that is `OUTSIDE_SERVICE_AREA`. Road distance above `MAX_DELIVERY_DISTANCE_KM` (default 10) is `DISTANCE_EXCEEDS_MAX`. Quoted km is stored as `distanceKm`. Rider payout is 85% (`PLATFORM_CUT_PERCENT=15`).
 
 ## Deploy
 
 Use hosted Postgres plus a Node web service. Do not run `prisma db seed` in production — it deletes all rows.
+
+To clear sample orders and customers on a hosted DB (keeps admins and riders):
+
+```bash
+DATABASE_URL="postgresql://...external-host.../koboride?sslmode=require" \
+WIPE_CONFIRM=DELETE_SAMPLE_DATA \
+npm run db:wipe-sample
+```
 
 ### Render (recommended for this repo)
 
@@ -118,7 +127,8 @@ You can also skip the laptop migrate step: the API **build** already runs `prism
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | `npx web-push generate-vapid-keys` (same public key as the frontend) |
 | `YABA_FLAT_FEE_NGN` | `1000` |
 | `MAX_DELIVERY_DISTANCE_KM` | `10` |
-| `PLATFORM_CUT_PERCENT` | `20` |
+| `PLATFORM_CUT_PERCENT` | `15` |
+| `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | rider profile photos |
 | `OTP_SKIP` | `true` until SMS is on |
 
 4. Deploy. Open `https://your-service.onrender.com/api/health` → `{ "ok": true }`.
@@ -171,7 +181,8 @@ DATABASE_URL="postgresql://..." ADMIN_EMAIL="you@koboride.ng" ADMIN_PASSWORD="a-
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | `npx web-push generate-vapid-keys` |
 | `YABA_FLAT_FEE_NGN` | `1000` |
 | `MAX_DELIVERY_DISTANCE_KM` | `10` |
-| `PLATFORM_CUT_PERCENT` | `20` |
+| `PLATFORM_CUT_PERCENT` | `15` |
+| `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | rider profile photos |
 | `OTP_SKIP` | `true` until SMS is ready |
 
 3. Deploy. `npm run build` runs `prisma migrate deploy` then `next build`.

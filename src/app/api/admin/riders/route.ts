@@ -12,6 +12,7 @@ function asOpsUser(rider: {
   id: string;
   name: string;
   phone: string;
+  photoUrl?: string | null;
   approved: boolean;
   createdAt: Date;
 }) {
@@ -20,6 +21,7 @@ function asOpsUser(rider: {
     role: "rider" as const,
     name: rider.name,
     phone: rider.phone,
+    photoUrl: rider.photoUrl ?? null,
     approved: rider.approved,
     createdAt: rider.createdAt.toISOString(),
   };

@@ -1,23 +1,7 @@
 import { config, riderPayoutNgn } from "@/lib/config";
 import { roadDistanceKm } from "@/lib/distance";
 import { AppError } from "@/lib/errors";
-
-/** Yaba / Akoka / Onike / Adekunle / Jibowu. Keep in sync with koboride-fe `src/lib/fare.ts`. */
-export const YABA_ZONE = {
-  minLat: 6.49,
-  maxLat: 6.528,
-  minLng: 3.362,
-  maxLng: 3.4,
-};
-
-export function isInYabaZone(lat: number, lng: number): boolean {
-  return (
-    lat >= YABA_ZONE.minLat &&
-    lat <= YABA_ZONE.maxLat &&
-    lng >= YABA_ZONE.minLng &&
-    lng <= YABA_ZONE.maxLng
-  );
-}
+import { isInActiveServiceArea } from "@/lib/zones";
 
 export function formatKm(km: number): string {
   const rounded = Math.round(km * 10) / 10;
@@ -44,8 +28,15 @@ export function feeFromCoords(
   dropoffLat: number,
   dropoffLng: number,
 ): number {
-  if (!isInYabaZone(pickupLat, pickupLng) || !isInYabaZone(dropoffLat, dropoffLng)) {
-    throw new AppError("KoboRide only operates in Yaba", "OUTSIDE_SERVICE_AREA", 400);
+  if (
+    !isInActiveServiceArea(pickupLat, pickupLng) ||
+    !isInActiveServiceArea(dropoffLat, dropoffLng)
+  ) {
+    throw new AppError(
+      "This location is outside the KoboRide service area.",
+      "OUTSIDE_SERVICE_AREA",
+      400,
+    );
   }
   return config.yabaFlatFeeNgn;
 }

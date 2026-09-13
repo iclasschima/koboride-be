@@ -1,3 +1,4 @@
+import { randomInt, timingSafeEqual } from "node:crypto";
 import type { CustomerRole, Prisma, RiderPhase } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
@@ -11,7 +12,7 @@ import {
 } from "@/lib/push";
 
 export const orderInclude = {
-  rider: { select: { id: true, name: true, phone: true } },
+  rider: { select: { id: true, name: true, phone: true, photoUrl: true } },
   customer: { select: { id: true, name: true, phone: true } },
 } satisfies Prisma.OrderInclude;
 
@@ -68,7 +69,17 @@ export async function getOrderOrThrow(id: string): Promise<OrderRow> {
   return order;
 }
 
-export function presentTrip(order: OrderRow) {
+export function generateDeliveryPin(): string {
+  return String(randomInt(0, 10_000)).padStart(4, "0");
+}
+
+export function deliveryPinsMatch(expected: string, given: string): boolean {
+  const a = Buffer.from(expected);
+  const b = Buffer.from(given.replace(/\D/g, "").padStart(4, "0").slice(-4));
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
   const awaiting = isDeliveredAwaitingConfirm(order);
   return {
     id: order.id,
@@ -86,17 +97,30 @@ export function presentTrip(order: OrderRow) {
     riderId: order.riderId,
     riderName: order.rider?.name ?? null,
     riderPhone: order.rider?.phone ?? null,
+    riderPhotoUrl: order.rider?.photoUrl ?? null,
     customerName: order.customer?.name ?? null,
     customerPhone: order.customer?.phone ?? null,
     payoutNgn: order.payoutNgn,
     payoutPaid: order.payoutPaid,
     distanceKm: order.distanceKm,
+    deliveryPin: hideDeliveryPin ? null : order.deliveryPin,
+    deliveryProof: order.deliveryProof,
+    deliveryProofNote: order.deliveryProofNote,
+    deliveryProofPhotoUrl: order.deliveryProofPhotoUrl,
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),
     autoConfirmInMs: awaiting
       ? Math.max(0, order.updatedAt.getTime() + autoConfirmMs() - Date.now())
       : null,
   };
+}
+
+export function presentTrip(order: OrderRow) {
+  return toTrip(order, false);
+}
+
+export function presentRiderTrip(order: OrderRow) {
+  return toTrip(order, true);
 }
 
 export function nextPhase(phase: RiderPhase | null): RiderPhase | null {
@@ -259,6 +283,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
       feeNgn: quote.feeNgn,
       payoutNgn: quote.payoutNgn,
       distanceKm: quote.distanceKm,
+      deliveryPin: generateDeliveryPin(),
       ...(riderId
         ? {
             riderId,

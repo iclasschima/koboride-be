@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { api, json, options, AppError } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
-import { presentCustomer, requireUser } from "@/lib/auth";
+import { presentCustomer, presentRiderUser, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export const OPTIONS = () => options();
@@ -27,7 +27,7 @@ export const GET = api(async (req) => {
     if (!rider) throw new AppError("Account not found", "NOT_FOUND", 404);
     return json({
       role: "rider" as const,
-      user: { id: rider.id, phone: rider.phone, name: rider.name },
+      user: presentRiderUser(rider),
       rider: {
         id: rider.id,
         approved: rider.approved,
