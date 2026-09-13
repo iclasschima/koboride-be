@@ -1,6 +1,6 @@
 import { config } from "@/lib/config";
 import { AppError } from "@/lib/errors";
-import { isInYabaZone, YABA_ZONE } from "@/lib/fare";
+import { activeServiceCircle, isInActiveServiceArea } from "@/lib/zones";
 
 export type PlaceSuggestion = {
   id: string;
@@ -80,6 +80,7 @@ export async function autocompletePlaces(
   const q = query.trim();
   if (q.length < 2) return [];
 
+  const service = activeServiceCircle();
   const body = await google<AutocompleteBody>(
     "places:autocomplete",
     {
@@ -89,9 +90,12 @@ export async function autocompletePlaces(
         includedRegionCodes: ["ng"],
         languageCode: "en",
         locationRestriction: {
-          rectangle: {
-            low: { latitude: YABA_ZONE.minLat, longitude: YABA_ZONE.minLng },
-            high: { latitude: YABA_ZONE.maxLat, longitude: YABA_ZONE.maxLng },
+          circle: {
+            center: {
+              latitude: service.centerLat,
+              longitude: service.centerLng,
+            },
+            radius: service.radiusMeters,
           },
         },
         ...(sessionToken ? { sessionToken } : {}),
@@ -136,8 +140,12 @@ export async function getPlaceDetails(
   if (typeof lat !== "number" || typeof lng !== "number") {
     throw new AppError("That place has no map location", "PLACE_NO_LOCATION", 502);
   }
-  if (!isInYabaZone(lat, lng)) {
-    throw new AppError("KoboRide only operates in Yaba", "OUTSIDE_SERVICE_AREA", 400);
+  if (!isInActiveServiceArea(lat, lng)) {
+    throw new AppError(
+      "This location is outside the KoboRide service area.",
+      "OUTSIDE_SERVICE_AREA",
+      400,
+    );
   }
 
   const formatted = body.formattedAddress?.trim();
@@ -342,8 +350,12 @@ export async function reverseGeocode(lat: number, lng: number): Promise<PlaceDet
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     throw new AppError("Invalid coordinates", "VALIDATION_ERROR", 400);
   }
-  if (!isInYabaZone(lat, lng)) {
-    throw new AppError("KoboRide only operates in Yaba", "OUTSIDE_SERVICE_AREA", 400);
+  if (!isInActiveServiceArea(lat, lng)) {
+    throw new AppError(
+      "This location is outside the KoboRide service area.",
+      "OUTSIDE_SERVICE_AREA",
+      400,
+    );
   }
 
   const fromGeo = await reverseFromGeocoding(lat, lng);

@@ -44,6 +44,7 @@ model Rider {
   id           String            @id @default(cuid())
   phone        String            @unique
   name         String
+  photoUrl     String?
   approved     Boolean           @default(false)
   availability RiderAvailability @default(OFFLINE)
   createdAt    DateTime          @default(now())
@@ -115,6 +116,11 @@ model Order {
   payoutPaid  Boolean     @default(false)
   /** Road distance pickup → dropoff, stored at quote time (km). */
   distanceKm  Float       @default(0)
+
+  deliveryPin String
+  deliveryProof String?
+  deliveryProofNote String?
+  deliveryProofPhotoUrl String?
 
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt

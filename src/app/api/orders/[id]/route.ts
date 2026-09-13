@@ -1,6 +1,6 @@
 import { api, json, options, AppError } from "@/lib/errors";
 import { requireUser } from "@/lib/auth";
-import { getOrderOrThrow, presentTrip } from "@/lib/orders";
+import { getOrderOrThrow, presentRiderTrip, presentTrip } from "@/lib/orders";
 
 export const OPTIONS = () => options();
 
@@ -16,7 +16,7 @@ export const GET = api(async (req, ctx) => {
     return json({ trip: presentTrip(order) });
   }
   if (user.role === "rider" && order.riderId === user.sub) {
-    return json({ trip: presentTrip(order) });
+    return json({ trip: presentRiderTrip(order) });
   }
 
   throw new AppError("You cannot view this order", "FORBIDDEN", 403);

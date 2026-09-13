@@ -106,11 +106,25 @@ export async function signInRider(phoneInput: string) {
   return {
     token,
     role: "rider" as const,
-    user: { id: rider.id, phone: rider.phone, name: rider.name },
+    user: presentRiderUser(rider),
     rider: {
       id: rider.id,
       approved: rider.approved,
       online: rider.availability === "ONLINE",
     },
+  };
+}
+
+export function presentRiderUser(rider: {
+  id: string;
+  phone: string;
+  name: string;
+  photoUrl?: string | null;
+}) {
+  return {
+    id: rider.id,
+    phone: rider.phone,
+    name: rider.name,
+    photoUrl: rider.photoUrl ?? null,
   };
 }

@@ -58,8 +58,9 @@ async function main() {
       senderPhone: "+2348011111111",
       receiverName: "Chinedu Okafor",
       receiverPhone: "+2348090001111",
-      feeNgn: 1900,
-      payoutNgn: 1520,
+      feeNgn: 1000,
+      payoutNgn: 850,
+      deliveryPin: "4821",
     },
   });
 
@@ -80,8 +81,9 @@ async function main() {
       senderPhone: "+2348011111111",
       receiverName: "Tejuosho Reception",
       receiverPhone: "+2348082223333",
-      feeNgn: 1700,
-      payoutNgn: 1360,
+      feeNgn: 1000,
+      payoutNgn: 850,
+      deliveryPin: "7390",
     },
   });
 
@@ -102,9 +104,11 @@ async function main() {
       senderPhone: "+2348011111111",
       receiverName: "Jibowu Desk",
       receiverPhone: "+2348074445555",
-      feeNgn: 1700,
-      payoutNgn: 1360,
+      feeNgn: 1000,
+      payoutNgn: 850,
       payoutPaid: false,
+      deliveryPin: "1056",
+      deliveryProof: "pin",
     },
   });
 

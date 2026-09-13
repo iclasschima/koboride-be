@@ -21,9 +21,9 @@ export const config = {
   baseFeeNgn: intEnv("BASE_FEE_NGN", 1000),
   perKmFeeNgn: intEnv("PER_KM_FEE_NGN", 200),
   yabaFlatFeeNgn: intEnv("YABA_FLAT_FEE_NGN", 1000),
-  /** Hard global bicycle-delivery cap. Independent of the Yaba zone box. */
+  /** Hard bicycle-delivery cap, independent of the Yaba zone. */
   maxDeliveryDistanceKm: floatEnv("MAX_DELIVERY_DISTANCE_KM", 10),
-  platformCutPercent: intEnv("PLATFORM_CUT_PERCENT", 20),
+  platformCutPercent: intEnv("PLATFORM_CUT_PERCENT", 15),
 
   sendchampPublicKey: process.env.SENDCHAMP_PUBLIC_KEY ?? "",
   sendchampSender: process.env.SENDCHAMP_SENDER ?? "ChampOTP",
@@ -37,6 +37,9 @@ export const config = {
   vapidPublicKey: process.env.VAPID_PUBLIC_KEY ?? "",
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY ?? "",
   vapidSubject: process.env.VAPID_SUBJECT ?? "mailto:hello@koboride.ng",
+  cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME ?? "",
+  cloudinaryApiKey: process.env.CLOUDINARY_API_KEY ?? "",
+  cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET ?? "",
   isProd: process.env.NODE_ENV === "production",
   /** Minutes after the rider marks delivered before the order auto-completes. */
   autoConfirmMinutes: intEnv("AUTO_CONFIRM_MINUTES", 15),

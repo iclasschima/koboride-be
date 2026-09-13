@@ -25,6 +25,7 @@ export const PATCH = api(async (req, ctx) => {
       role: "rider" as const,
       name: updated.name,
       phone: updated.phone,
+      photoUrl: updated.photoUrl,
       approved: updated.approved,
       createdAt: updated.createdAt.toISOString(),
     },
