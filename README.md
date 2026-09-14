@@ -37,7 +37,6 @@ Shared staging is the **`develop`** branch on both repos. Production is **`main`
 | POST | `/api/push/subscribe` | save Web Push subscription for the JWT user |
 | POST | `/api/push/unsubscribe` | `{ endpoint }` |
 | POST | `/api/orders/:id/cancel` | `{ reason, note? }` before pickup; 429 `CANCEL_LIMIT_REACHED` (3 / 24h) |
-| POST | `/api/orders/:id/auto-assign` | first available / only rider |
 | POST | `/api/orders/:id/accept` | rider claims a waiting job |
 | POST | `/api/orders/:id/confirm` | leftover delivered jobs; PIN already completes |
 | POST | `/api/orders/:id/status` | rider advances phase; to mark delivered send `{ pin }` or `{ skipReason }` (+ optional `photo`) |

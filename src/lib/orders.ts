@@ -134,6 +134,7 @@ export function presentRiderTrip(order: OrderRow) {
 
 export function nextPhase(phase: RiderPhase | null): RiderPhase | null {
   if (!phase) return "accepted";
+  if (phase === "en_route_pickup" || phase === "collected") return "en_route_dropoff";
   const i = RIDER_PHASES.indexOf(phase);
   if (i < 0 || i >= RIDER_PHASES.length - 1) return phase;
   return RIDER_PHASES[i + 1]!;
