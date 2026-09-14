@@ -111,6 +111,9 @@ function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
     payoutPaid: order.payoutPaid,
     distanceKm: order.distanceKm,
     deliveryPin: hideDeliveryPin ? null : order.deliveryPin,
+    deliveryPinRevealed: Boolean(order.deliveryPinRevealedAt),
+    deliveryPinRequested: Boolean(order.deliveryPinRequestedAt),
+    deliveryPinRequestedAt: order.deliveryPinRequestedAt?.toISOString() ?? null,
     requiresDeliveryPin: Boolean(order.deliveryPin),
     deliveryProof: order.deliveryProof,
     deliveryProofNote: order.deliveryProofNote,
@@ -129,7 +132,7 @@ export function presentTrip(order: OrderRow) {
 }
 
 export function presentRiderTrip(order: OrderRow) {
-  return toTrip(order, true);
+  return toTrip(order, !order.deliveryPinRevealedAt);
 }
 
 export function nextPhase(phase: RiderPhase | null): RiderPhase | null {

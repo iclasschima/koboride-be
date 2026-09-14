@@ -162,6 +162,17 @@ export async function notifyOrderDelivered(order: {
   });
 }
 
+export async function notifyDeliveryPinRequested(order: {
+  id: string;
+  customerId: string;
+}): Promise<void> {
+  await sendPushToUser(order.customerId, "customer", {
+    title: "Delivery PIN",
+    body: "Tap Reveal code",
+    url: `/trips/${order.id}`,
+  });
+}
+
 export async function sendPushToAdmins(payload: PushPayload): Promise<void> {
   await runPush(async () => {
     const rows = await prisma.pushSubscription.findMany({ where: { role: "admin" } });
