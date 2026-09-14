@@ -34,9 +34,19 @@ type Ctx = { params?: Record<string, string> };
 export function api(handler: (req: Request, ctx: Ctx) => Promise<NextResponse>) {
   return async (req: Request, ctx: Ctx = {}) => {
     try {
-      return await handler(req, ctx);
+      return await attachRefreshHeader(await handler(req, ctx));
     } catch (err) {
-      return toErrorResponse(err);
+      return attachRefreshHeader(toErrorResponse(err));
     }
   };
+}
+
+async function attachRefreshHeader(res: NextResponse): Promise<NextResponse> {
+  try {
+    const { attachClientRefreshHeader } = await import("@/lib/settings");
+    await attachClientRefreshHeader(res);
+  } catch {
+    /* don't fail the request */
+  }
+  return res;
 }
