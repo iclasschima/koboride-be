@@ -25,6 +25,7 @@ function withCors(headers: Headers, origin: string | null) {
   }
   headers.set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  headers.set("Access-Control-Expose-Headers", "X-Kobo-Refresh");
   headers.set("Access-Control-Max-Age", "86400");
 }
 

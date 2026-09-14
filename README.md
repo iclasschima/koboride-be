@@ -23,6 +23,7 @@ Shared staging is the **`develop`** branch on both repos. Production is **`main`
 | Method | Path | Notes |
 | ------ | ---- | ----- |
 | GET | `/api/health` | uptime |
+| GET | `/api/app` | `{ nonce }` — current app reload token; also sent as `X-Kobo-Refresh` on API responses |
 | POST | `/api/auth/customer/login` `{ phone }` | customer register/sign-in |
 | POST | `/api/auth/rider/login` `{ phone }` | rider sign-in (must already exist) |
 | POST | `/api/auth/admin/login` `{ email, password }` | ops sign-in |
@@ -48,7 +49,7 @@ Shared staging is the **`develop`** branch on both repos. Production is **`main`
 | GET | `/api/places/reverse?lat=&lng=` | |
 | GET | `/api/admin/customers` | |
 | GET/PATCH | `/api/admin/customers/:id` | PATCH `{ active }` or `{ resetCancelLimit }` |
-| GET/PATCH | `/api/admin/settings` | PATCH `{ maxActiveOrders, platformCutPercent }` |
+| GET/PATCH | `/api/admin/settings` | PATCH `{ maxActiveOrders, platformCutPercent, bumpClientRefresh: true }` |
 | GET/POST | `/api/admin/orders` | admin can create an order |
 | GET/DELETE | `/api/admin/orders/:id` | admin can permanently delete an order |
 | POST | `/api/admin/orders/:id/assign` `{ riderId }` | |

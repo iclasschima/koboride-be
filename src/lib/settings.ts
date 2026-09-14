@@ -1,17 +1,40 @@
 import { z } from "zod";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { config } from "@/lib/config";
 
 export const MAX_ACTIVE_ORDERS_KEY = "maxActiveOrders";
 export const PLATFORM_CUT_KEY = "platformCutPercent";
+export const CLIENT_REFRESH_NONCE_KEY = "clientRefreshNonce";
 
 const MAX_ACTIVE_ORDERS_CEILING = 50;
 
 export type PlatformSettings = {
   maxActiveOrders: number;
   platformCutPercent: number;
+  clientRefreshNonce: number;
 };
+
+export type ClientAppStatus = {
+  nonce: number;
+};
+
+const CLIENT_REFRESH_HEADER = "X-Kobo-Refresh";
+let refreshCache: { at: number; nonce: number } | null = null;
+
+function invalidateClientRefreshCache() {
+  refreshCache = null;
+}
+
+export async function attachClientRefreshHeader(res: NextResponse): Promise<void> {
+  const now = Date.now();
+  if (!refreshCache || now - refreshCache.at > 2_000) {
+    const status = await getClientAppStatus();
+    refreshCache = { at: now, nonce: status.nonce };
+  }
+  res.headers.set(CLIENT_REFRESH_HEADER, String(refreshCache.nonce));
+}
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
   if (!raw) return fallback;
@@ -33,14 +56,20 @@ function parseIntInRange(
 export async function getPlatformSettings(): Promise<PlatformSettings> {
   const rows = await prisma.appSetting.findMany({
     where: {
-      key: { in: [MAX_ACTIVE_ORDERS_KEY, PLATFORM_CUT_KEY] },
+      key: { in: [MAX_ACTIVE_ORDERS_KEY, PLATFORM_CUT_KEY, CLIENT_REFRESH_NONCE_KEY] },
     },
   });
   const map = Object.fromEntries(rows.map((row) => [row.key, row.value]));
   return {
     maxActiveOrders: parsePositiveInt(map[MAX_ACTIVE_ORDERS_KEY], config.maxActiveOrders),
     platformCutPercent: parseIntInRange(map[PLATFORM_CUT_KEY], config.platformCutPercent, 0, 50),
+    clientRefreshNonce: parseIntInRange(map[CLIENT_REFRESH_NONCE_KEY], 0, 0, Number.MAX_SAFE_INTEGER),
   };
+}
+
+export async function getClientAppStatus(): Promise<ClientAppStatus> {
+  const settings = await getPlatformSettings();
+  return { nonce: settings.clientRefreshNonce };
 }
 
 export async function getMaxActiveOrders(): Promise<number> {
@@ -62,9 +91,13 @@ async function upsertSetting(key: string, value: string): Promise<void> {
 }
 
 export async function updatePlatformSettings(
-  input: Partial<PlatformSettings>,
+  input: Partial<PlatformSettings> & { bumpClientRefresh?: boolean },
 ): Promise<PlatformSettings> {
-  if (input.maxActiveOrders === undefined && input.platformCutPercent === undefined) {
+  if (
+    input.maxActiveOrders === undefined &&
+    input.platformCutPercent === undefined &&
+    input.bumpClientRefresh !== true
+  ) {
     throw new AppError("Nothing to update", "VALIDATION_ERROR", 400);
   }
 
@@ -72,6 +105,9 @@ export async function updatePlatformSettings(
   const next: PlatformSettings = {
     maxActiveOrders: input.maxActiveOrders ?? current.maxActiveOrders,
     platformCutPercent: input.platformCutPercent ?? current.platformCutPercent,
+    clientRefreshNonce: input.bumpClientRefresh
+      ? current.clientRefreshNonce + 1
+      : current.clientRefreshNonce,
   };
 
   if (
@@ -96,7 +132,9 @@ export async function updatePlatformSettings(
   await Promise.all([
     upsertSetting(MAX_ACTIVE_ORDERS_KEY, String(next.maxActiveOrders)),
     upsertSetting(PLATFORM_CUT_KEY, String(next.platformCutPercent)),
+    upsertSetting(CLIENT_REFRESH_NONCE_KEY, String(next.clientRefreshNonce)),
   ]);
+  if (input.bumpClientRefresh) invalidateClientRefreshCache();
   return getPlatformSettings();
 }
 
@@ -104,8 +142,12 @@ export const platformSettingsPatchSchema = z
   .object({
     maxActiveOrders: z.number().int().min(1).max(MAX_ACTIVE_ORDERS_CEILING).optional(),
     platformCutPercent: z.number().int().min(0).max(50).optional(),
+    bumpClientRefresh: z.literal(true).optional(),
   })
   .refine(
-    (body) => body.maxActiveOrders !== undefined || body.platformCutPercent !== undefined,
+    (body) =>
+      body.maxActiveOrders !== undefined ||
+      body.platformCutPercent !== undefined ||
+      body.bumpClientRefresh === true,
     { message: "Nothing to update" },
   );
