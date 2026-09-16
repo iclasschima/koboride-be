@@ -1,7 +1,7 @@
 import { api, json, options, AppError } from "@/lib/errors";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getOrderOrThrow, presentTrip } from "@/lib/orders";
+import { getOrderOrThrow, presentRelease, presentTrip } from "@/lib/orders";
 
 export const OPTIONS = () => options();
 
@@ -9,7 +9,18 @@ export const GET = api(async (req, ctx) => {
   requireUser(req, ["admin"]);
   const id = ctx.params?.id;
   if (!id) throw new AppError("Missing order id", "VALIDATION_ERROR", 400);
-  return json({ trip: presentTrip(await getOrderOrThrow(id)) });
+
+  const [order, releases] = await Promise.all([
+    getOrderOrThrow(id),
+    prisma.orderRelease.findMany({
+      where: { orderId: id },
+      include: { rider: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+  return json({
+    trip: { ...presentTrip(order), releases: releases.map(presentRelease) },
+  });
 });
 
 export const DELETE = api(async (req, ctx) => {

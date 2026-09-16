@@ -79,6 +79,7 @@ export const GET = api(async (req, ctx) => {
         include: orderInclude,
         orderBy: { createdAt: "desc" },
       },
+      releases: { orderBy: { createdAt: "desc" } },
     },
   });
   if (!rider) throw new AppError("Rider not found", "NOT_FOUND", 404);
@@ -109,6 +110,12 @@ export const GET = api(async (req, ctx) => {
       distanceKm: completed.reduce((sum, order) => sum + order.distanceKm, 0),
       avgDurationSeconds,
       lastJobAt: last?.createdAt.toISOString() ?? null,
+      droppedCount: rider.releases.length,
+      droppedRecentCount: rider.releases.filter(
+        (row) => row.createdAt >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      ).length,
+      lastDroppedAt: rider.releases[0]?.createdAt.toISOString() ?? null,
+      lastDropReason: rider.releases[0]?.reason ?? null,
     },
     trips: rider.orders.map(presentTrip),
   });
