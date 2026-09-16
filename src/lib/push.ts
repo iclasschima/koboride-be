@@ -151,6 +151,17 @@ export async function notifyRiderOrderCancelled(order: {
   });
 }
 
+export async function notifyCustomerJobReleased(order: {
+  id: string;
+  customerId: string;
+}): Promise<void> {
+  await sendPushToUser(order.customerId, "customer", {
+    title: "Looking for another rider",
+    body: "The first rider could not make it, so your order is waiting again",
+    url: `/trips/${order.id}`,
+  });
+}
+
 export async function notifyOrderDelivered(order: {
   id: string;
   customerId: string;
@@ -222,6 +233,18 @@ export async function notifyAdminOrderStatus(order: {
   await sendPushToAdmins({
     title: adminOrderLabel(order),
     body: order.pickup,
+    url: `/admin/orders/${order.id}`,
+  });
+}
+
+export async function notifyAdminJobReleased(
+  order: { id: string; pickup: string },
+  rider: { name: string | null },
+  reason: string,
+): Promise<void> {
+  await sendPushToAdmins({
+    title: "Rider dropped a job",
+    body: `${rider.name?.trim() || "A rider"} · ${reason} · ${order.pickup}`,
     url: `/admin/orders/${order.id}`,
   });
 }
