@@ -154,13 +154,79 @@ export function assertCustomerOwns(
 
 const PICKED_UP: RiderPhase[] = ["collected", "en_route_dropoff", "delivered"];
 
+export function hasPickedUp(order: { riderPhase: RiderPhase | null }): boolean {
+  return Boolean(order.riderPhase && PICKED_UP.includes(order.riderPhase));
+}
+
 export function customerCanCancel(order: {
   status: string;
   riderPhase: RiderPhase | null;
 }): boolean {
   if (order.status === "dispatching") return true;
   if (order.status !== "in_progress") return false;
-  return !order.riderPhase || !PICKED_UP.includes(order.riderPhase);
+  return !hasPickedUp(order);
+}
+
+/** A rider can hand a job back until the package is in their bag. */
+export function riderCanRelease(order: {
+  status: string;
+  riderPhase: RiderPhase | null;
+}): boolean {
+  return order.status === "in_progress" && !hasPickedUp(order);
+}
+
+export function assertRiderReleaseAllowed(order: {
+  status: string;
+  riderPhase: RiderPhase | null;
+}): void {
+  if (!riderCanRelease(order)) {
+    throw new AppError(
+      "You can only drop a job before you pick up the package",
+      "ALREADY_PICKED_UP",
+      409,
+    );
+  }
+}
+
+export type ReleaseRow = {
+  id: string;
+  riderId: string;
+  phase: RiderPhase | null;
+  reason: string;
+  createdAt: Date;
+  rider?: { name: string } | null;
+};
+
+export function presentRelease(row: ReleaseRow) {
+  return {
+    id: row.id,
+    riderId: row.riderId,
+    riderName: row.rider?.name ?? null,
+    phase: row.phase,
+    reason: row.reason,
+    at: row.createdAt.toISOString(),
+  };
+}
+
+export const RELEASE_REASONS = [
+  "Bike problem",
+  "Too far from me",
+  "Cannot reach the sender",
+  "Emergency",
+  "Other",
+] as const;
+
+export function normalizeReleaseReason(reason: string, note?: string): string {
+  const picked = reason.trim();
+  if (!(RELEASE_REASONS as readonly string[]).includes(picked)) {
+    throw new AppError("Choose why you are dropping this job", "RELEASE_REASON_REQUIRED", 400);
+  }
+  if (picked !== "Other") return picked;
+  const extra = note?.trim() ?? "";
+  if (extra.length < 4) {
+    throw new AppError("Add a short note for Other", "RELEASE_REASON_REQUIRED", 400);
+  }
+  return `Other: ${extra.slice(0, 160)}`;
 }
 
 export const CANCEL_REASONS = [

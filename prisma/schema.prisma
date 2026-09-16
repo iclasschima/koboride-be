@@ -64,6 +64,7 @@ model Rider {
   availability RiderAvailability @default(OFFLINE)
   createdAt    DateTime          @default(now())
   orders       Order[]
+  releases     OrderRelease[]
 }
 
 model Admin {
@@ -150,4 +151,22 @@ model Order {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   completedAt DateTime?
+
+  releases    OrderRelease[]
+}
+
+/** One row each time a rider hands a job back before pickup. */
+model OrderRelease {
+  id        String      @id @default(cuid())
+  orderId   String
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  riderId   String
+  rider     Rider       @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  /** Phase the job was in when the rider dropped it. */
+  phase     RiderPhase?
+  reason    String
+  createdAt DateTime    @default(now())
+
+  @@index([orderId])
+  @@index([riderId, createdAt])
 }
