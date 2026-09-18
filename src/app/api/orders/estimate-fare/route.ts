@@ -2,7 +2,8 @@ import { z } from "zod";
 import { api, json, options } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
 import { rateLimit } from "@/lib/rate-limit";
-import { quoteRoute } from "@/lib/fare";
+import { customerFeeNgn, quoteRoute } from "@/lib/fare";
+import { getPlatformSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -24,19 +25,33 @@ export const POST = api(async (req) => {
     await readJson(req),
   );
 
-  const quote = await quoteRoute({
-    pickup: body.pickup ?? "pickup",
-    dropoff: body.dropoff ?? "dropoff",
-    pickupLat: body.pickupLat,
-    pickupLng: body.pickupLng,
-    dropoffLat: body.dropoffLat,
-    dropoffLng: body.dropoffLng,
-  });
+  const [quote, settings] = await Promise.all([
+    quoteRoute({
+      pickup: body.pickup ?? "pickup",
+      dropoff: body.dropoff ?? "dropoff",
+      pickupLat: body.pickupLat,
+      pickupLng: body.pickupLng,
+      dropoffLat: body.dropoffLat,
+      dropoffLng: body.dropoffLng,
+    }),
+    getPlatformSettings(),
+  ]);
+
+  const onlineFeeNgn = customerFeeNgn(
+    quote.listFeeNgn,
+    "paystack",
+    settings.onlinePaymentDiscountNgn,
+  );
 
   return json({
-    feeNgn: quote.feeNgn,
+    feeNgn: quote.listFeeNgn,
+    onlineFeeNgn,
+    onlineDiscountNgn: quote.listFeeNgn - onlineFeeNgn,
     payoutNgn: quote.payoutNgn,
     distanceKm: quote.distanceKm,
     maxDistanceKm: quote.maxDistanceKm,
+    baseFeeNgn: settings.baseFeeNgn,
+    perKmFeeNgn: settings.perKmFeeNgn,
+    minFareNgn: settings.minFareNgn,
   });
 });

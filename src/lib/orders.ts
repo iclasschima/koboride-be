@@ -133,7 +133,12 @@ function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
 }
 
 export function presentTrip(order: OrderRow) {
-  return toTrip(order, false);
+  return toTrip(order, shouldHideCustomerDeliveryPin(order));
+}
+
+/** Hide the PIN while searching; show it once a rider has accepted. */
+function shouldHideCustomerDeliveryPin(order: OrderRow): boolean {
+  return order.status !== "in_progress";
 }
 
 export function presentRiderTrip(order: OrderRow) {
@@ -428,7 +433,8 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
     );
   }
 
-  const quote = await quoteRoute(input);
+  const paymentMethod: PaymentMethod = input.paymentMethod === "paystack" ? "paystack" : "cash";
+  const quote = await quoteRoute({ ...input, paymentMethod });
   let riderId: string | undefined;
   if (input.riderId) {
     const rider = await prisma.rider.findUnique({
@@ -439,7 +445,6 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
     riderId = rider.id;
   }
 
-  const paymentMethod: PaymentMethod = input.paymentMethod === "paystack" ? "paystack" : "cash";
   let paymentStatus: PaymentStatus = "unpaid";
   let paystackReference: string | null = null;
   let paidAt: Date | null = null;

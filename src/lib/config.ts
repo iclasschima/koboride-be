@@ -18,9 +18,13 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET ?? "dev-only-insecure-secret",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "14d",
 
-  baseFeeNgn: intEnv("BASE_FEE_NGN", 1000),
-  perKmFeeNgn: intEnv("PER_KM_FEE_NGN", 200),
+  baseFeeNgn: intEnv("BASE_FEE_NGN", 400),
+  perKmFeeNgn: intEnv("PER_KM_FEE_NGN", 250),
+  minFareNgn: intEnv("MIN_FARE_NGN", 650),
+  /** @deprecated Flat zone fee replaced by distance formula; kept for env compatibility. */
   yabaFlatFeeNgn: intEnv("YABA_FLAT_FEE_NGN", 1000),
+  /** Discount for online (Paystack) payment, funded from platform commission. */
+  onlinePaymentDiscountNgn: intEnv("ONLINE_PAYMENT_DISCOUNT_NGN", 50),
   /** Hard bicycle-delivery cap, independent of the Yaba zone. */
   maxDeliveryDistanceKm: floatEnv("MAX_DELIVERY_DISTANCE_KM", 10),
   platformCutPercent: intEnv("PLATFORM_CUT_PERCENT", 15),
