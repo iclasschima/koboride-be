@@ -18,6 +18,7 @@ export type PlatformSettings = {
 
 export type ClientAppStatus = {
   nonce: number;
+  paystackEnabled: boolean;
 };
 
 const CLIENT_REFRESH_HEADER = "X-Kobo-Refresh";
@@ -69,7 +70,10 @@ export async function getPlatformSettings(): Promise<PlatformSettings> {
 
 export async function getClientAppStatus(): Promise<ClientAppStatus> {
   const settings = await getPlatformSettings();
-  return { nonce: settings.clientRefreshNonce };
+  return {
+    nonce: settings.clientRefreshNonce,
+    paystackEnabled: Boolean(config.paystackSecretKey.trim() && config.paystackPublicKey.trim()),
+  };
 }
 
 export async function getMaxActiveOrders(): Promise<number> {

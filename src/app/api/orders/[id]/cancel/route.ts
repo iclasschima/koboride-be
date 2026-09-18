@@ -9,9 +9,14 @@ import {
   normalizeCancelReason,
   orderInclude,
   presentTrip,
+  refundIfPaidOnline,
 } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
-import { notifyAdminOrderStatus, notifyRiderOrderCancelled } from "@/lib/push";
+import {
+  notifyAdminOrderStatus,
+  notifyCustomerPaymentRefunded,
+  notifyRiderOrderCancelled,
+} from "@/lib/push";
 
 export const OPTIONS = () => options();
 
@@ -32,13 +37,17 @@ export const POST = api(async (req, ctx) => {
   assertCustomerOwns(order, user.sub);
   await assertCustomerCancelAllowed(user.sub, order);
   const cancelReason = normalizeCancelReason(body.reason, body.note);
+  const refund = await refundIfPaidOnline(order);
 
   const updated = await prisma.order.update({
     where: { id: order.id },
-    data: { status: "cancelled", cancelReason },
+    data: { status: "cancelled", cancelReason, ...refund },
     include: orderInclude,
   });
   await notifyAdminOrderStatus(updated);
   if (updated.riderId) await notifyRiderOrderCancelled(updated);
+  if (refund.paymentStatus === "refunded") {
+    await notifyCustomerPaymentRefunded(updated);
+  }
   return json({ trip: presentTrip(updated) });
 });

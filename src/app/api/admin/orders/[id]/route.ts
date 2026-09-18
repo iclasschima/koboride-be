@@ -1,7 +1,7 @@
 import { api, json, options, AppError } from "@/lib/errors";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getOrderOrThrow, presentRelease, presentTrip } from "@/lib/orders";
+import { getOrderOrThrow, presentRelease, presentTrip, refundIfPaidOnline } from "@/lib/orders";
 
 export const OPTIONS = () => options();
 
@@ -31,6 +31,7 @@ export const DELETE = api(async (req, ctx) => {
   const order = await prisma.order.findUnique({ where: { id } });
   if (!order) throw new AppError("Order not found", "ORDER_NOT_FOUND", 404);
 
+  await refundIfPaidOnline(order);
   await prisma.order.delete({ where: { id } });
   return json({ ok: true });
 });

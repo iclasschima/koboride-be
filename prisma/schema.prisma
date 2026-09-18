@@ -32,6 +32,17 @@ enum CustomerRole {
   receiver
 }
 
+enum PaymentMethod {
+  cash
+  paystack
+}
+
+enum PaymentStatus {
+  unpaid
+  paid
+  refunded
+}
+
 enum RiderIdType {
   nin
   drivers_license
@@ -136,6 +147,12 @@ model Order {
   feeNgn      Int
   payoutNgn   Int
   payoutPaid  Boolean     @default(false)
+  paymentMethod PaymentMethod @default(cash)
+  paymentStatus PaymentStatus @default(unpaid)
+  paystackReference String? @unique
+  paystackRefundId String?
+  paidAt      DateTime?
+  refundedAt  DateTime?
   /** Road distance pickup → dropoff, stored at quote time (km). */
   distanceKm  Float       @default(0)
 
