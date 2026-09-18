@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { api, json, options } from "@/lib/errors";
+import { api, json, options, AppError } from "@/lib/errors";
 import { parseBody, readJson, customerBookingSchema } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
