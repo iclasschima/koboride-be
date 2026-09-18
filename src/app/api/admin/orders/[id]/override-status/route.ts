@@ -3,10 +3,11 @@ import type { OrderStatus, RiderPhase } from "@prisma/client";
 import { api, json, options, AppError } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
-import { getOrderOrThrow, orderCompletedData, orderInclude, presentTrip } from "@/lib/orders";
+import { getOrderOrThrow, orderCompletedData, orderInclude, presentTrip, refundIfPaidOnline } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 import {
   notifyAdminOrderStatus,
+  notifyCustomerPaymentRefunded,
   notifyOrderAccepted,
   notifyOrderDelivered,
   notifySearchingRider,
@@ -36,6 +37,9 @@ export const POST = api(async (req, ctx) => {
     riderPhase: RiderPhase | null;
     riderId?: string | null;
     completedAt?: Date | null;
+    paymentStatus?: "refunded";
+    refundedAt?: Date;
+    paystackRefundId?: string;
   } = {
     status: body.status,
     riderPhase: order.riderPhase,
@@ -59,6 +63,7 @@ export const POST = api(async (req, ctx) => {
     Object.assign(data, order.completedAt ? { riderPhase: "delivered" } : orderCompletedData());
   } else if (body.status === "cancelled") {
     data.completedAt = null;
+    Object.assign(data, await refundIfPaidOnline(order));
   }
 
   const updated = await prisma.order.update({
@@ -80,6 +85,13 @@ export const POST = api(async (req, ctx) => {
   }
   if (order.status !== updated.status || order.riderPhase !== updated.riderPhase) {
     await notifyAdminOrderStatus(updated);
+  }
+  if (
+    updated.status === "cancelled" &&
+    updated.paymentStatus === "refunded" &&
+    order.paymentStatus !== "refunded"
+  ) {
+    await notifyCustomerPaymentRefunded(updated);
   }
 
   return json({ trip: presentTrip(updated) });

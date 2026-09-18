@@ -162,6 +162,17 @@ export async function notifyCustomerJobReleased(order: {
   });
 }
 
+export async function notifyCustomerPaymentRefunded(order: {
+  id: string;
+  customerId: string;
+}): Promise<void> {
+  await sendPushToUser(order.customerId, "customer", {
+    title: "Payment refunded",
+    body: "Your fare is going back to your bank or card.",
+    url: `/trips/${order.id}`,
+  });
+}
+
 export async function notifyOrderDelivered(order: {
   id: string;
   customerId: string;

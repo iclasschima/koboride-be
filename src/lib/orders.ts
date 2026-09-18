@@ -1,11 +1,12 @@
 import { randomInt, timingSafeEqual } from "node:crypto";
-import type { CustomerRole, Prisma, RiderPhase } from "@prisma/client";
+import type { CustomerRole, PaymentMethod, PaymentStatus, Prisma, RiderPhase } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { config } from "@/lib/config";
 import { quoteRoute } from "@/lib/fare";
 import { preferredPhone } from "@/lib/phone";
 import { getMaxActiveOrders } from "@/lib/settings";
+import { nairaToKobo, refundPaystack, verifyPaystack } from "@/lib/paystack";
 import {
   notifyAdminNewOrder,
   notifyOrderAccepted,
@@ -109,6 +110,10 @@ function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
     customerPhone: order.customer?.phone ?? null,
     payoutNgn: order.payoutNgn,
     payoutPaid: order.payoutPaid,
+    paymentMethod: order.paymentMethod,
+    paymentStatus: order.paymentStatus,
+    paidAt: order.paidAt?.toISOString() ?? null,
+    refundedAt: order.refundedAt?.toISOString() ?? null,
     distanceKm: order.distanceKm,
     deliveryPin: hideDeliveryPin ? null : order.deliveryPin,
     deliveryPinRevealed: Boolean(order.deliveryPinRevealedAt),
@@ -303,6 +308,39 @@ export async function assertCustomerCancelAllowed(
   }
 }
 
+export async function refundIfPaidOnline(order: {
+  paymentMethod: PaymentMethod;
+  paymentStatus: PaymentStatus;
+  paystackReference: string | null;
+}): Promise<{
+  paymentStatus?: PaymentStatus;
+  refundedAt?: Date;
+  paystackRefundId?: string;
+}> {
+  if (order.paymentMethod !== "paystack") return {};
+  if (order.paymentStatus === "refunded") return {};
+  if (order.paymentStatus !== "paid" || !order.paystackReference) return {};
+
+  try {
+    const refund = await refundPaystack(order.paystackReference);
+    return {
+      paymentStatus: "refunded",
+      refundedAt: new Date(),
+      paystackRefundId: refund.id,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "";
+    if (/already|fully refunded/i.test(message)) {
+      return { paymentStatus: "refunded", refundedAt: new Date() };
+    }
+    throw new AppError(
+      "Could not refund this payment. Try again in a moment.",
+      "REFUND_FAILED",
+      502,
+    );
+  }
+}
+
 export type PlaceOrderInput = {
   customerId: string;
   pickup: string;
@@ -318,6 +356,8 @@ export type PlaceOrderInput = {
   receiverPhone: string;
   customerRole?: CustomerRole;
   riderId?: string;
+  paymentMethod?: PaymentMethod;
+  paystackReference?: string;
 };
 
 export function resolveCustomerContacts(input: {
@@ -399,6 +439,28 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
     riderId = rider.id;
   }
 
+  const paymentMethod: PaymentMethod = input.paymentMethod === "paystack" ? "paystack" : "cash";
+  let paymentStatus: PaymentStatus = "unpaid";
+  let paystackReference: string | null = null;
+  let paidAt: Date | null = null;
+
+  if (paymentMethod === "paystack") {
+    const ref = input.paystackReference?.trim();
+    if (!ref) throw new AppError("Payment reference is missing", "VALIDATION_ERROR", 400);
+    const used = await prisma.order.findUnique({ where: { paystackReference: ref } });
+    if (used) throw new AppError("This payment was already used", "PAYMENT_ALREADY_USED", 409);
+    const paid = await verifyPaystack(ref);
+    if (paid.status !== "success") {
+      throw new AppError("Payment was not successful", "PAYMENT_REQUIRED", 402);
+    }
+    if (paid.amountKobo !== nairaToKobo(quote.feeNgn)) {
+      throw new AppError("Paid amount does not match the fare", "PAYMENT_MISMATCH", 409);
+    }
+    paymentStatus = "paid";
+    paystackReference = ref;
+    paidAt = new Date();
+  }
+
   const maxActiveOrders = await getMaxActiveOrders();
   const order = await prisma.$transaction(async (tx) => {
     const active = await tx.order.count({
@@ -433,6 +495,10 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
         feeNgn: quote.feeNgn,
         payoutNgn: quote.payoutNgn,
         distanceKm: quote.distanceKm,
+        paymentMethod,
+        paymentStatus,
+        paystackReference,
+        paidAt,
         deliveryPin: generateDeliveryPin(),
         ...(riderId
           ? {

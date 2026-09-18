@@ -25,6 +25,8 @@ export const config = {
   maxDeliveryDistanceKm: floatEnv("MAX_DELIVERY_DISTANCE_KM", 10),
   platformCutPercent: intEnv("PLATFORM_CUT_PERCENT", 15),
 
+  paystackSecretKey: process.env.PAYSTACK_SECRET_KEY ?? "",
+  paystackPublicKey: process.env.PAYSTACK_PUBLIC_KEY ?? "",
   googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY ?? "",
   vapidPublicKey: process.env.VAPID_PUBLIC_KEY ?? "",
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY ?? "",

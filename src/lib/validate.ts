@@ -22,3 +22,18 @@ export function parseBody<T extends z.ZodType>(schema: T, data: unknown): z.infe
   }
   return result.data;
 }
+
+export const customerBookingSchema = z.object({
+  pickup: z.string().min(2),
+  dropoff: z.string().min(2),
+  notes: z.string().min(1).max(500),
+  pickupLat: z.number().finite(),
+  pickupLng: z.number().finite(),
+  dropoffLat: z.number().finite(),
+  dropoffLng: z.number().finite(),
+  customerRole: z.enum(["sender", "receiver"]).optional(),
+  senderName: z.string().min(2).max(80).optional(),
+  senderPhone: z.string().min(7).max(20).optional(),
+  receiverName: z.string().min(2).max(80).optional(),
+  receiverPhone: z.string().min(7).max(20).optional(),
+});
