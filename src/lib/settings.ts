@@ -7,13 +7,23 @@ import { config } from "@/lib/config";
 export const MAX_ACTIVE_ORDERS_KEY = "maxActiveOrders";
 export const PLATFORM_CUT_KEY = "platformCutPercent";
 export const CLIENT_REFRESH_NONCE_KEY = "clientRefreshNonce";
+export const BASE_FEE_KEY = "baseFeeNgn";
+export const PER_KM_FEE_KEY = "perKmFeeNgn";
+export const MIN_FARE_KEY = "minFareNgn";
+export const ONLINE_DISCOUNT_KEY = "onlinePaymentDiscountNgn";
 
 const MAX_ACTIVE_ORDERS_CEILING = 50;
+const FARE_AMOUNT_MAX = 50_000;
+const ONLINE_DISCOUNT_MAX = 5_000;
 
 export type PlatformSettings = {
   maxActiveOrders: number;
   platformCutPercent: number;
   clientRefreshNonce: number;
+  baseFeeNgn: number;
+  perKmFeeNgn: number;
+  minFareNgn: number;
+  onlinePaymentDiscountNgn: number;
 };
 
 export type ClientAppStatus = {
@@ -23,6 +33,16 @@ export type ClientAppStatus = {
 
 const CLIENT_REFRESH_HEADER = "X-Kobo-Refresh";
 let refreshCache: { at: number; nonce: number } | null = null;
+
+const SETTINGS_KEYS = [
+  MAX_ACTIVE_ORDERS_KEY,
+  PLATFORM_CUT_KEY,
+  CLIENT_REFRESH_NONCE_KEY,
+  BASE_FEE_KEY,
+  PER_KM_FEE_KEY,
+  MIN_FARE_KEY,
+  ONLINE_DISCOUNT_KEY,
+] as const;
 
 function invalidateClientRefreshCache() {
   refreshCache = null;
@@ -56,15 +76,22 @@ function parseIntInRange(
 
 export async function getPlatformSettings(): Promise<PlatformSettings> {
   const rows = await prisma.appSetting.findMany({
-    where: {
-      key: { in: [MAX_ACTIVE_ORDERS_KEY, PLATFORM_CUT_KEY, CLIENT_REFRESH_NONCE_KEY] },
-    },
+    where: { key: { in: [...SETTINGS_KEYS] } },
   });
   const map = Object.fromEntries(rows.map((row) => [row.key, row.value]));
   return {
     maxActiveOrders: parsePositiveInt(map[MAX_ACTIVE_ORDERS_KEY], config.maxActiveOrders),
     platformCutPercent: parseIntInRange(map[PLATFORM_CUT_KEY], config.platformCutPercent, 0, 50),
     clientRefreshNonce: parseIntInRange(map[CLIENT_REFRESH_NONCE_KEY], 0, 0, Number.MAX_SAFE_INTEGER),
+    baseFeeNgn: parseIntInRange(map[BASE_FEE_KEY], config.baseFeeNgn, 0, FARE_AMOUNT_MAX),
+    perKmFeeNgn: parseIntInRange(map[PER_KM_FEE_KEY], config.perKmFeeNgn, 0, FARE_AMOUNT_MAX),
+    minFareNgn: parseIntInRange(map[MIN_FARE_KEY], config.minFareNgn, 0, FARE_AMOUNT_MAX),
+    onlinePaymentDiscountNgn: parseIntInRange(
+      map[ONLINE_DISCOUNT_KEY],
+      config.onlinePaymentDiscountNgn,
+      0,
+      ONLINE_DISCOUNT_MAX,
+    ),
   };
 }
 
@@ -94,12 +121,25 @@ async function upsertSetting(key: string, value: string): Promise<void> {
   });
 }
 
+function assertFareAmount(label: string, value: number, max: number): void {
+  if (!Number.isInteger(value) || value < 0 || value > max) {
+    throw new AppError(`${label} must be between 0 and ${max}`, "VALIDATION_ERROR", 400);
+  }
+}
+
 export async function updatePlatformSettings(
   input: Partial<PlatformSettings> & { bumpClientRefresh?: boolean },
 ): Promise<PlatformSettings> {
+  const hasFareUpdate =
+    input.baseFeeNgn !== undefined ||
+    input.perKmFeeNgn !== undefined ||
+    input.minFareNgn !== undefined ||
+    input.onlinePaymentDiscountNgn !== undefined;
+
   if (
     input.maxActiveOrders === undefined &&
     input.platformCutPercent === undefined &&
+    !hasFareUpdate &&
     input.bumpClientRefresh !== true
   ) {
     throw new AppError("Nothing to update", "VALIDATION_ERROR", 400);
@@ -112,6 +152,11 @@ export async function updatePlatformSettings(
     clientRefreshNonce: input.bumpClientRefresh
       ? current.clientRefreshNonce + 1
       : current.clientRefreshNonce,
+    baseFeeNgn: input.baseFeeNgn ?? current.baseFeeNgn,
+    perKmFeeNgn: input.perKmFeeNgn ?? current.perKmFeeNgn,
+    minFareNgn: input.minFareNgn ?? current.minFareNgn,
+    onlinePaymentDiscountNgn:
+      input.onlinePaymentDiscountNgn ?? current.onlinePaymentDiscountNgn,
   };
 
   if (
@@ -132,11 +177,19 @@ export async function updatePlatformSettings(
   ) {
     throw new AppError("Platform cut must be between 0 and 50 percent", "VALIDATION_ERROR", 400);
   }
+  assertFareAmount("Base fare", next.baseFeeNgn, FARE_AMOUNT_MAX);
+  assertFareAmount("Per-km rate", next.perKmFeeNgn, FARE_AMOUNT_MAX);
+  assertFareAmount("Minimum fare", next.minFareNgn, FARE_AMOUNT_MAX);
+  assertFareAmount("Online payment discount", next.onlinePaymentDiscountNgn, ONLINE_DISCOUNT_MAX);
 
   await Promise.all([
     upsertSetting(MAX_ACTIVE_ORDERS_KEY, String(next.maxActiveOrders)),
     upsertSetting(PLATFORM_CUT_KEY, String(next.platformCutPercent)),
     upsertSetting(CLIENT_REFRESH_NONCE_KEY, String(next.clientRefreshNonce)),
+    upsertSetting(BASE_FEE_KEY, String(next.baseFeeNgn)),
+    upsertSetting(PER_KM_FEE_KEY, String(next.perKmFeeNgn)),
+    upsertSetting(MIN_FARE_KEY, String(next.minFareNgn)),
+    upsertSetting(ONLINE_DISCOUNT_KEY, String(next.onlinePaymentDiscountNgn)),
   ]);
   if (input.bumpClientRefresh) invalidateClientRefreshCache();
   return getPlatformSettings();
@@ -146,12 +199,20 @@ export const platformSettingsPatchSchema = z
   .object({
     maxActiveOrders: z.number().int().min(1).max(MAX_ACTIVE_ORDERS_CEILING).optional(),
     platformCutPercent: z.number().int().min(0).max(50).optional(),
+    baseFeeNgn: z.number().int().min(0).max(FARE_AMOUNT_MAX).optional(),
+    perKmFeeNgn: z.number().int().min(0).max(FARE_AMOUNT_MAX).optional(),
+    minFareNgn: z.number().int().min(0).max(FARE_AMOUNT_MAX).optional(),
+    onlinePaymentDiscountNgn: z.number().int().min(0).max(ONLINE_DISCOUNT_MAX).optional(),
     bumpClientRefresh: z.literal(true).optional(),
   })
   .refine(
     (body) =>
       body.maxActiveOrders !== undefined ||
       body.platformCutPercent !== undefined ||
+      body.baseFeeNgn !== undefined ||
+      body.perKmFeeNgn !== undefined ||
+      body.minFareNgn !== undefined ||
+      body.onlinePaymentDiscountNgn !== undefined ||
       body.bumpClientRefresh === true,
     { message: "Nothing to update" },
   );

@@ -37,7 +37,7 @@ export const POST = api(async (req) => {
   });
 
   const [quote, maxActiveOrders, active] = await Promise.all([
-    quoteRoute(body),
+    quoteRoute({ ...body, paymentMethod: "paystack" }),
     getMaxActiveOrders(),
     countActiveOrders(customer.id),
   ]);

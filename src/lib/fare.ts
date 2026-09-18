@@ -1,8 +1,15 @@
 import { config, riderPayoutNgn } from "@/lib/config";
-import { getPlatformCutPercent } from "@/lib/settings";
+import { getPlatformSettings, type PlatformSettings } from "@/lib/settings";
 import { roadDistanceKm } from "@/lib/distance";
 import { AppError } from "@/lib/errors";
 import { isInActiveServiceArea } from "@/lib/zones";
+
+export type PaymentMethod = "cash" | "paystack";
+
+export type FareRates = Pick<
+  PlatformSettings,
+  "baseFeeNgn" | "perKmFeeNgn" | "minFareNgn" | "onlinePaymentDiscountNgn"
+>;
 
 export function formatKm(km: number): string {
   const rounded = Math.round(km * 10) / 10;
@@ -23,12 +30,12 @@ export function assertWithinMaxDeliveryDistance(distanceKm: number): void {
   );
 }
 
-export function feeFromCoords(
+export function assertInServiceArea(
   pickupLat: number,
   pickupLng: number,
   dropoffLat: number,
   dropoffLng: number,
-): number {
+): void {
   if (
     !isInActiveServiceArea(pickupLat, pickupLng) ||
     !isInActiveServiceArea(dropoffLat, dropoffLng)
@@ -39,7 +46,30 @@ export function feeFromCoords(
       400,
     );
   }
-  return config.yabaFlatFeeNgn;
+}
+
+/** Customer-facing fares always land on a ₦50 step — never show ₦818. */
+export function roundToDisplayPrice(rawFee: number): number {
+  if (!Number.isFinite(rawFee) || rawFee <= 0) return 0;
+  return Math.round(rawFee / 50) * 50;
+}
+
+/** Exact distance math, then round to nearest ₦50 for the list price. */
+export function feeFromDistanceKm(distanceKm: number, rates: FareRates): number {
+  const km = Math.max(0, distanceKm);
+  const exact = rates.baseFeeNgn + km * rates.perKmFeeNgn;
+  return roundToDisplayPrice(Math.max(rates.minFareNgn, exact));
+}
+
+/** What the customer pays. Online discount comes out of platform margin only. */
+export function customerFeeNgn(
+  listFeeNgn: number,
+  paymentMethod: PaymentMethod = "cash",
+  onlineDiscountNgn = config.onlinePaymentDiscountNgn,
+): number {
+  if (paymentMethod !== "paystack") return roundToDisplayPrice(listFeeNgn);
+  const discount = Math.max(0, Math.min(onlineDiscountNgn, listFeeNgn));
+  return roundToDisplayPrice(listFeeNgn - discount);
 }
 
 export async function quoteRoute(input: {
@@ -49,20 +79,38 @@ export async function quoteRoute(input: {
   pickupLng: number;
   dropoffLat: number;
   dropoffLng: number;
+  paymentMethod?: PaymentMethod;
 }) {
-  const distanceKm = await roadDistanceKm(
+  assertInServiceArea(
     input.pickupLat,
     input.pickupLng,
     input.dropoffLat,
     input.dropoffLng,
   );
+
+  const [distanceKm, settings] = await Promise.all([
+    roadDistanceKm(
+      input.pickupLat,
+      input.pickupLng,
+      input.dropoffLat,
+      input.dropoffLng,
+    ),
+    getPlatformSettings(),
+  ]);
   assertWithinMaxDeliveryDistance(distanceKm);
-  const feeNgn = feeFromCoords(
-    input.pickupLat,
-    input.pickupLng,
-    input.dropoffLat,
-    input.dropoffLng,
+
+  const listFeeNgn = feeFromDistanceKm(distanceKm, settings);
+  const paymentMethod: PaymentMethod =
+    input.paymentMethod === "paystack" ? "paystack" : "cash";
+  const feeNgn = customerFeeNgn(
+    listFeeNgn,
+    paymentMethod,
+    settings.onlinePaymentDiscountNgn,
   );
+  const onlineDiscountNgn = listFeeNgn - feeNgn;
+  // Rider payout is always from the full list fare — never reduced by online discount.
+  const payoutNgn = riderPayoutNgn(listFeeNgn, settings.platformCutPercent);
+
   return {
     pickup: input.pickup.trim(),
     dropoff: input.dropoff.trim(),
@@ -72,7 +120,9 @@ export async function quoteRoute(input: {
     dropoffLng: input.dropoffLng,
     distanceKm: roundKm(distanceKm),
     maxDistanceKm: config.maxDeliveryDistanceKm,
+    listFeeNgn,
+    onlineDiscountNgn,
     feeNgn,
-    payoutNgn: riderPayoutNgn(feeNgn, await getPlatformCutPercent()),
+    payoutNgn,
   };
 }
