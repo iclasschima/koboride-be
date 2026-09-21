@@ -6,7 +6,7 @@ import { uploadRiderIdDocument, uploadRiderPhoto } from "@/lib/cloudinary";
 import { orderDurationSeconds, orderInclude, presentTrip } from "@/lib/orders";
 import { normalizePhone, phoneLookupKeys } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
-import { parseRiderVerification, presentOpsRider } from "@/lib/riders";
+import { parseRiderVerification, parseZoneSlug, presentOpsRider } from "@/lib/riders";
 
 export const OPTIONS = () => options();
 
@@ -19,6 +19,7 @@ function parseOptionalBool(value: unknown): boolean | undefined {
 async function readPatchInput(req: Request): Promise<{
   name?: string;
   phone?: string;
+  zoneSlug?: string;
   photo: File | null;
   idDocument: File | null;
   active?: boolean;
@@ -29,6 +30,7 @@ async function readPatchInput(req: Request): Promise<{
     const form = await req.formData();
     const name = String(form.get("name") ?? "").trim();
     const phone = String(form.get("phone") ?? "").trim();
+    const zoneSlugRaw = String(form.get("zoneSlug") ?? "").trim();
     const photo = form.get("photo");
     const idDocument = form.get("idDocument");
     const verificationFields = {
@@ -41,6 +43,7 @@ async function readPatchInput(req: Request): Promise<{
     return {
       name: name || undefined,
       phone: phone || undefined,
+      zoneSlug: zoneSlugRaw ? parseZoneSlug(zoneSlugRaw) : undefined,
       photo: photo instanceof File && photo.size > 0 ? photo : null,
       idDocument: idDocument instanceof File && idDocument.size > 0 ? idDocument : null,
       active: parseOptionalBool(form.get("active") ?? form.get("approved")),
@@ -52,6 +55,7 @@ async function readPatchInput(req: Request): Promise<{
     z.object({
       name: z.string().min(2).max(80).optional(),
       phone: z.string().min(10).optional(),
+      zoneSlug: z.string().optional(),
       approved: z.boolean().optional(),
       active: z.boolean().optional(),
     }),
@@ -60,6 +64,7 @@ async function readPatchInput(req: Request): Promise<{
   return {
     name: body.name?.trim(),
     phone: body.phone,
+    zoneSlug: body.zoneSlug ? parseZoneSlug(body.zoneSlug) : undefined,
     photo: null,
     idDocument: null,
     active: body.active ?? body.approved,
@@ -130,6 +135,7 @@ export const PATCH = api(async (req, ctx) => {
   if (
     !input.name &&
     !input.phone &&
+    !input.zoneSlug &&
     !input.photo &&
     !input.idDocument &&
     input.active === undefined &&
@@ -170,6 +176,7 @@ export const PATCH = api(async (req, ctx) => {
     data: {
       ...(input.name ? { name: input.name } : {}),
       ...(input.phone ? { phone } : {}),
+      ...(input.zoneSlug ? { zoneSlug: input.zoneSlug } : {}),
       ...input.verification,
       ...(input.active === undefined
         ? {}

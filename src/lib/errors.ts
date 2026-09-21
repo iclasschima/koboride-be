@@ -34,11 +34,21 @@ type Ctx = { params?: Record<string, string> };
 export function api(handler: (req: Request, ctx: Ctx) => Promise<NextResponse>) {
   return async (req: Request, ctx: Ctx = {}) => {
     try {
+      await warmZoneCache();
       return await attachRefreshHeader(await handler(req, ctx));
     } catch (err) {
       return attachRefreshHeader(toErrorResponse(err));
     }
   };
+}
+
+async function warmZoneCache() {
+  try {
+    const { getPricingZones } = await import("@/lib/zones");
+    await getPricingZones();
+  } catch {
+    /* don't fail the request */
+  }
 }
 
 async function attachRefreshHeader(res: NextResponse): Promise<NextResponse> {

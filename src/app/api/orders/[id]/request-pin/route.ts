@@ -1,6 +1,6 @@
 import { api, json, options, AppError } from "@/lib/errors";
 import { requireRider } from "@/lib/auth";
-import { getOrderOrThrow, orderInclude, presentRiderTrip } from "@/lib/orders";
+import { getOrderOrThrow, hasPickedUp, orderInclude, presentRiderTrip } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 import { notifyDeliveryPinRequested } from "@/lib/push";
 
@@ -23,6 +23,14 @@ export const POST = api(async (req, ctx) => {
 
   if (order.deliveryPinRevealedAt) {
     return json({ trip: presentRiderTrip(order) });
+  }
+
+  if (!hasPickedUp(order)) {
+    throw new AppError(
+      "Ask for the code when you are heading to drop-off",
+      "INVALID_STATUS",
+      409,
+    );
   }
 
   const last = order.deliveryPinRequestedAt?.getTime() ?? 0;

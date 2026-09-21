@@ -4,10 +4,14 @@ import { parseBody, readJson, customerBookingSchema } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import {
-  orderInclude,
-  presentTrip,
+  assertCustomerCanBook,
   autoConfirmStaleDeliveries,
+  cancelHoldMessage,
+  countRecentCancels,
+  isCancelLimited,
+  orderInclude,
   placeOrder,
+  presentTrip,
   resolveCustomerContacts,
 } from "@/lib/orders";
 import { getMaxActiveOrders } from "@/lib/settings";
@@ -17,22 +21,35 @@ export const OPTIONS = () => options();
 export const GET = api(async (req) => {
   const user = requireUser(req, ["customer"]);
   await autoConfirmStaleDeliveries();
-  const [orders, maxActiveOrders] = await Promise.all([
+  const { runOrderMaintenance } = await import("@/lib/dispatch");
+  await runOrderMaintenance();
+  const [orders, maxActiveOrders, customer] = await Promise.all([
     prisma.order.findMany({
       where: { customerId: user.sub },
       include: orderInclude,
       orderBy: { createdAt: "desc" },
     }),
     getMaxActiveOrders(),
+    prisma.customer.findUnique({
+      where: { id: user.sub },
+      select: { cancelLimitResetAt: true },
+    }),
   ]);
   const activeOrders = orders.filter(
     (o) => o.status === "dispatching" || o.status === "in_progress",
   ).length;
+  const cancelsInWindow = await countRecentCancels(user.sub, customer?.cancelLimitResetAt);
+  const cancelLimited = isCancelLimited(cancelsInWindow);
+  const completedOrders = orders.filter((o) => o.status === "completed").length;
+  const secondOrderFree = completedOrders === 1 && activeOrders === 0;
   return json({
     trips: orders.map(presentTrip),
     activeOrders,
     maxActiveOrders,
-    canPlaceOrder: activeOrders < maxActiveOrders,
+    cancelLimited,
+    canPlaceOrder: !cancelLimited && activeOrders < maxActiveOrders,
+    orderHoldReason: cancelLimited ? cancelHoldMessage() : null,
+    secondOrderFree,
   });
 });
 
@@ -50,6 +67,7 @@ export const POST = api(async (req) => {
   if (!customer) {
     throw new AppError("Customer not found", "NOT_FOUND", 404);
   }
+  await assertCustomerCanBook(customer.id);
 
   const contacts = resolveCustomerContacts({
     customerRole: body.customerRole,
@@ -71,6 +89,7 @@ export const POST = api(async (req) => {
     dropoffLat: body.dropoffLat,
     dropoffLng: body.dropoffLng,
     ...contacts,
+    farePayer: body.farePayer,
     paymentMethod: body.paymentMethod === "paystack" ? "paystack" : "cash",
     paystackReference: body.paystackReference,
   });

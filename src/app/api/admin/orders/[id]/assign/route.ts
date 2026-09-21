@@ -26,6 +26,13 @@ export const POST = api(async (req, ctx) => {
 
   const rider = await prisma.rider.findUnique({ where: { id: riderId } });
   if (!rider?.approved) throw new AppError("Rider is not approved", "RIDER_NOT_APPROVED", 400);
+  if (rider.zoneSlug !== order.zoneSlug) {
+    throw new AppError(
+      "Riders can only take jobs in their assigned zone",
+      "ZONE_MISMATCH",
+      400,
+    );
+  }
   if (order.riderId === rider.id) {
     throw new AppError("That rider is already assigned", "ALREADY_ASSIGNED", 409);
   }

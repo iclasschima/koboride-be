@@ -1,8 +1,8 @@
 import { config, riderPayoutNgn } from "@/lib/config";
 import { getPlatformSettings, type PlatformSettings } from "@/lib/settings";
-import { roadDistanceKm } from "@/lib/distance";
+import { roadDistanceKm, haversineKm } from "@/lib/distance";
 import { AppError } from "@/lib/errors";
-import { isInActiveServiceArea } from "@/lib/zones";
+import { routeZone, type PricingZone } from "@/lib/zones";
 
 export type PaymentMethod = "cash" | "paystack";
 
@@ -14,6 +14,31 @@ export type FareRates = Pick<
 export function formatKm(km: number): string {
   const rounded = Math.round(km * 10) / 10;
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+const SAME_STOP_KM = 0.05;
+
+export function assertDistinctStops(input: {
+  pickupLat: number;
+  pickupLng: number;
+  dropoffLat: number;
+  dropoffLng: number;
+}): void {
+  if (
+    haversineKm(
+      input.pickupLat,
+      input.pickupLng,
+      input.dropoffLat,
+      input.dropoffLng,
+    ) >= SAME_STOP_KM
+  ) {
+    return;
+  }
+  throw new AppError(
+    "Pickup and drop-off need to be different places.",
+    "SAME_LOCATION",
+    400,
+  );
 }
 
 export function roundKm(km: number): number {
@@ -30,22 +55,17 @@ export function assertWithinMaxDeliveryDistance(distanceKm: number): void {
   );
 }
 
-export function assertInServiceArea(
+export function assertRoutable(
   pickupLat: number,
   pickupLng: number,
   dropoffLat: number,
   dropoffLng: number,
-): void {
-  if (
-    !isInActiveServiceArea(pickupLat, pickupLng) ||
-    !isInActiveServiceArea(dropoffLat, dropoffLng)
-  ) {
-    throw new AppError(
-      "This location is outside the KoboRide service area.",
-      "OUTSIDE_SERVICE_AREA",
-      400,
-    );
+): PricingZone {
+  const routed = routeZone(pickupLat, pickupLng, dropoffLat, dropoffLng);
+  if (!routed.ok) {
+    throw new AppError(routed.message, routed.code, 400);
   }
+  return routed.zone;
 }
 
 /** Customer-facing fares always land on a ₦50 step — never show ₦818. */
@@ -81,7 +101,8 @@ export async function quoteRoute(input: {
   dropoffLng: number;
   paymentMethod?: PaymentMethod;
 }) {
-  assertInServiceArea(
+  assertDistinctStops(input);
+  const zone = assertRoutable(
     input.pickupLat,
     input.pickupLng,
     input.dropoffLat,
@@ -124,5 +145,6 @@ export async function quoteRoute(input: {
     onlineDiscountNgn,
     feeNgn,
     payoutNgn,
+    zoneSlug: zone.slug,
   };
 }

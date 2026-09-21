@@ -25,9 +25,21 @@ export const config = {
   yabaFlatFeeNgn: intEnv("YABA_FLAT_FEE_NGN", 1000),
   /** Discount for online (Paystack) payment, funded from platform commission. */
   onlinePaymentDiscountNgn: intEnv("ONLINE_PAYMENT_DISCOUNT_NGN", 50),
-  /** Hard bicycle-delivery cap, independent of the Yaba zone. */
+  /** ₦ off the fare if a customer keeps waiting after a long search. */
+  retentionDiscountNgn: intEnv("RETENTION_DISCOUNT_NGN", 100),
+  /** Offer the cancel-intercept discount after this many ms searching. */
+  stillLookingAfterMs: intEnv("STILL_LOOKING_AFTER_MS", 8 * 60 * 1000),
+  /** Auto-cancel (with refund) after this many ms actively searching. */
+  searchingAutoCancelAfterMs: intEnv("SEARCHING_AUTO_CANCEL_AFTER_MS", 15 * 60 * 1000),
+  /** If a zone has no approved riders, stop searching after this many ms. */
+  emptyZoneCancelAfterMs: intEnv("EMPTY_ZONE_CANCEL_AFTER_MS", 8_000),
+  /** @deprecated Reschedule delay is unused; kept for env compatibility. */
+  rescheduleDelayMs: intEnv("RESCHEDULE_DELAY_MS", 30 * 60 * 1000),
+  /** Hard bicycle-delivery cap across every zone. Per-zone radius is the day-to-day limit. */
   maxDeliveryDistanceKm: floatEnv("MAX_DELIVERY_DISTANCE_KM", 10),
   platformCutPercent: intEnv("PLATFORM_CUT_PERCENT", 15),
+  /** Optional bearer secret for /api/cron/* (Authorization: Bearer …). */
+  cronSecret: process.env.CRON_SECRET ?? "",
 
   paystackSecretKey: process.env.PAYSTACK_SECRET_KEY ?? "",
   paystackPublicKey: process.env.PAYSTACK_PUBLIC_KEY ?? "",
@@ -40,8 +52,8 @@ export const config = {
   cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET ?? "",
   /** Customer-initiated cancels allowed in the rolling window. */
   maxCancelsPerWindow: intEnv("MAX_CANCELS_PER_WINDOW", 3),
-  /** Hours that window covers (default 24). */
-  cancelWindowHours: intEnv("CANCEL_WINDOW_HOURS", 24),
+  /** Hours that window covers (default 1). */
+  cancelWindowHours: intEnv("CANCEL_WINDOW_HOURS", 1),
   /** Default live orders per customer; Admin → Settings can raise this. */
   maxActiveOrders: intEnv("MAX_ACTIVE_ORDERS", 3),
 };

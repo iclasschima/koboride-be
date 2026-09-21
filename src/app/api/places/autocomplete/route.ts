@@ -13,8 +13,14 @@ export const GET = api(async (req) => {
   const url = new URL(req.url);
   const q = url.searchParams.get("q") ?? "";
   const session = url.searchParams.get("session") ?? undefined;
+  const fromLat = Number(url.searchParams.get("fromLat"));
+  const fromLng = Number(url.searchParams.get("fromLng"));
   if (q.trim().length < 2) return json({ places: [] });
 
-  const places = await autocompletePlaces(q, session);
+  const origin =
+    Number.isFinite(fromLat) && Number.isFinite(fromLng)
+      ? { lat: fromLat, lng: fromLng }
+      : undefined;
+  const places = await autocompletePlaces(q, session, origin);
   return json({ places });
 });

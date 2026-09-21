@@ -32,6 +32,7 @@ export const customerBookingSchema = z.object({
   dropoffLat: z.number().finite(),
   dropoffLng: z.number().finite(),
   customerRole: z.enum(["sender", "receiver"]).optional(),
+  farePayer: z.enum(["sender", "receiver"]).optional(),
   senderName: z.string().min(2).max(80).optional(),
   senderPhone: z.string().min(7).max(20).optional(),
   receiverName: z.string().min(2).max(80).optional(),
