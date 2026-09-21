@@ -6,13 +6,14 @@ import { uploadRiderIdDocument, uploadRiderPhoto } from "@/lib/cloudinary";
 import { prisma } from "@/lib/prisma";
 import { normalizePhone, phoneLookupKeys } from "@/lib/phone";
 import { notifyAdminNewUser } from "@/lib/push";
-import { parseRiderVerification, presentOpsRider } from "@/lib/riders";
+import { parseRiderVerification, parseZoneSlug, presentOpsRider } from "@/lib/riders";
 
 export const OPTIONS = () => options();
 
 const riderFields = z.object({
   phone: z.string().min(10),
   name: z.string().min(2).max(80),
+  zoneSlug: z.string().optional(),
   idType: z.string().optional(),
   idNumber: z.string().optional(),
   nextOfKinName: z.string().optional(),
@@ -23,6 +24,7 @@ const riderFields = z.object({
 async function readCreateInput(req: Request): Promise<{
   name: string;
   phone: string;
+  zoneSlug: string;
   photo: File | null;
   idDocument: File | null;
   verification: ReturnType<typeof parseRiderVerification>;
@@ -33,6 +35,7 @@ async function readCreateInput(req: Request): Promise<{
     const body = parseBody(riderFields, {
       name: String(form.get("name") ?? ""),
       phone: String(form.get("phone") ?? ""),
+      zoneSlug: String(form.get("zoneSlug") ?? "") || undefined,
       idType: String(form.get("idType") ?? "") || undefined,
       idNumber: String(form.get("idNumber") ?? "") || undefined,
       nextOfKinName: String(form.get("nextOfKinName") ?? "") || undefined,
@@ -44,6 +47,7 @@ async function readCreateInput(req: Request): Promise<{
     return {
       name: body.name.trim(),
       phone: body.phone,
+      zoneSlug: parseZoneSlug(body.zoneSlug),
       photo: photo instanceof File && photo.size > 0 ? photo : null,
       idDocument: idDocument instanceof File && idDocument.size > 0 ? idDocument : null,
       verification: parseRiderVerification(body),
@@ -54,6 +58,7 @@ async function readCreateInput(req: Request): Promise<{
   return {
     name: body.name.trim(),
     phone: body.phone,
+    zoneSlug: parseZoneSlug(body.zoneSlug),
     photo: null,
     idDocument: null,
     verification: parseRiderVerification(body),
@@ -76,13 +81,14 @@ export const POST = api(async (req) => {
   let rider = existing
     ? await prisma.rider.update({
         where: { id: existing.id },
-        data: { phone, name: input.name, approved: true, ...input.verification },
+        data: { phone, name: input.name, zoneSlug: input.zoneSlug, approved: true, ...input.verification },
       })
     : await prisma.rider.create({
         data: {
           phone,
           name: input.name,
           approved: true,
+          zoneSlug: input.zoneSlug,
           availability: "OFFLINE",
           ...input.verification,
         },

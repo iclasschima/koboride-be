@@ -73,9 +73,13 @@ model Rider {
   nextOfKinRelationship String?
   approved     Boolean           @default(false)
   availability RiderAvailability @default(OFFLINE)
+  /** Dedicated dispatch pool. One zone per rider — never cross-dispatch. */
+  zoneSlug     String            @default("YAB")
   createdAt    DateTime          @default(now())
   orders       Order[]
   releases     OrderRelease[]
+
+  @@index([zoneSlug])
 }
 
 model Admin {
@@ -89,6 +93,19 @@ model AppSetting {
   key       String   @id
   value     String
   updatedAt DateTime @updatedAt
+}
+
+/** Neighborhood bicycle coverage. Dispatch never crosses zones; adjacent hops are allowed. */
+model PricingZone {
+  slug          String   @id
+  name          String
+  centerLat     Float
+  centerLng     Float
+  radiusKm      Float
+  active        Boolean  @default(false)
+  adjacentSlugs String[] @default([])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model OtpCode {
@@ -136,6 +153,8 @@ model Order {
   dropoff     String
   dropoffLat  Float
   dropoffLng  Float
+  /** Dispatch pool for this order (pickup zone, or pickup zone on an adjacent hop). */
+  zoneSlug    String      @default("YAB")
   notes       String?
 
   senderName     String   @default("")
@@ -143,6 +162,8 @@ model Order {
   receiverName   String   @default("")
   receiverPhone  String   @default("")
   customerRole   CustomerRole @default(sender)
+  /** Who settles the fare in cash — sender at pickup or receiver at drop-off. */
+  farePayer      CustomerRole @default(sender)
 
   feeNgn      Int
   payoutNgn   Int
@@ -165,11 +186,34 @@ model Order {
 
   cancelReason String?
 
+  /** When set in the future, order is paused from rider dispatch until that time. */
+  scheduledFor    DateTime?
+  /** @deprecated Customer reschedule delay — kept for existing rows. */
+  rescheduleCount Int       @default(0)
+  /** Cancel-intercept retention offer has been shown (or applied). */
+  retentionOfferShown Boolean @default(false)
+
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   completedAt DateTime?
 
   releases    OrderRelease[]
+  events      OrderEvent[]
+
+  @@index([status, scheduledFor])
+  @@index([zoneSlug, status, scheduledFor])
+}
+
+/** Audit trail for order lifecycle (reschedule, auto-cancel, schedule activate, …). */
+model OrderEvent {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type      String
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  @@index([orderId, createdAt])
 }
 
 /** One row each time a rider hands a job back before pickup. */

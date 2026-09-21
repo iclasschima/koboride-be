@@ -1,12 +1,14 @@
 import { config } from "@/lib/config";
+import { haversineKm } from "@/lib/distance";
 import { AppError } from "@/lib/errors";
-import { activeServiceCircle, isInActiveServiceArea } from "@/lib/zones";
+import { isInLagos, lagosPlacesRestriction, zoneNameForPoint } from "@/lib/zones";
 
 export type PlaceSuggestion = {
   id: string;
   name: string;
   area: string;
   source: "google";
+  distanceKm?: number;
 };
 
 export type PlaceDetails = {
@@ -21,6 +23,7 @@ type AutocompleteBody = {
   suggestions?: Array<{
     placePrediction?: {
       placeId?: string;
+      distanceMeters?: number;
       structuredFormat?: {
         mainText?: { text?: string };
         secondaryText?: { text?: string };
@@ -73,14 +76,21 @@ async function google<T>(path: string, init: RequestInit, fieldMask?: string): P
   return body;
 }
 
+function tidyArea(secondary: string) {
+  return secondary.replace(/,?\s*Nigeria$/i, "").trim();
+}
+
 export async function autocompletePlaces(
   query: string,
   sessionToken?: string,
+  origin?: { lat: number; lng: number },
 ): Promise<PlaceSuggestion[]> {
   const q = query.trim();
   if (q.length < 2) return [];
 
-  const service = activeServiceCircle();
+  const hasOrigin =
+    origin && Number.isFinite(origin.lat) && Number.isFinite(origin.lng);
+
   const body = await google<AutocompleteBody>(
     "places:autocomplete",
     {
@@ -89,36 +99,57 @@ export async function autocompletePlaces(
         input: q,
         includedRegionCodes: ["ng"],
         languageCode: "en",
-        locationRestriction: {
-          circle: {
-            center: {
-              latitude: service.centerLat,
-              longitude: service.centerLng,
-            },
-            radius: service.radiusMeters,
-          },
-        },
+        locationRestriction: lagosPlacesRestriction(),
+        ...(hasOrigin
+          ? { origin: { latitude: origin.lat, longitude: origin.lng } }
+          : {}),
         ...(sessionToken ? { sessionToken } : {}),
       }),
     },
-    "suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.text",
+    "suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.text,suggestions.placePrediction.distanceMeters",
   );
 
-  return (body.suggestions ?? [])
+  const places = (body.suggestions ?? [])
     .map((s) => s.placePrediction)
     .filter((p): p is NonNullable<typeof p> => Boolean(p?.placeId))
     .map((p) => {
       const main = p.structuredFormat?.mainText?.text?.trim();
       const secondary = p.structuredFormat?.secondaryText?.text?.trim();
-      const full = p.text?.text?.trim() || [main, secondary].filter(Boolean).join(", ");
+      const meters = p.distanceMeters;
       return {
         id: p.placeId!,
-        name: full || "Place",
-        area: secondary && full && !full.includes(secondary) ? secondary : "",
+        name: main || p.text?.text?.trim() || "Place",
+        area: secondary ? tidyArea(secondary) : "",
         source: "google" as const,
+        ...(typeof meters === "number" && meters >= 0
+          ? { distanceKm: Math.round((meters / 1000) * 10) / 10 }
+          : {}),
       };
     })
     .slice(0, 8);
+
+  if (!hasOrigin) return places;
+  return fillMissingDistances(places, origin);
+}
+
+async function fillMissingDistances(
+  places: PlaceSuggestion[],
+  origin: { lat: number; lng: number },
+): Promise<PlaceSuggestion[]> {
+  return Promise.all(
+    places.map(async (place) => {
+      if (place.distanceKm != null) return place;
+      try {
+        const details = await getPlaceDetails(place.id);
+        return {
+          ...place,
+          distanceKm: Math.round(haversineKm(origin.lat, origin.lng, details.lat, details.lng) * 10) / 10,
+        };
+      } catch {
+        return place;
+      }
+    }),
+  );
 }
 
 export async function getPlaceDetails(
@@ -140,9 +171,9 @@ export async function getPlaceDetails(
   if (typeof lat !== "number" || typeof lng !== "number") {
     throw new AppError("That place has no map location", "PLACE_NO_LOCATION", 502);
   }
-  if (!isInActiveServiceArea(lat, lng)) {
+  if (!isInLagos(lat, lng)) {
     throw new AppError(
-      "This location is outside the KoboRide service area.",
+      "KoboRide only picks up and drops off in Lagos.",
       "OUTSIDE_SERVICE_AREA",
       400,
     );
@@ -154,7 +185,7 @@ export async function getPlaceDetails(
   return {
     id: body.id ?? id,
     name: formatted || shortName || "Place",
-    area: shortName && formatted && !formatted.includes(shortName) ? shortName : "Yaba",
+    area: shortName && formatted && !formatted.includes(shortName) ? shortName : zoneNameForPoint(lat, lng),
     lat,
     lng,
   };
@@ -260,7 +291,7 @@ async function reverseFromGeocodeV4(lat: number, lng: number): Promise<PlaceDeta
     v4Component(best, "neighborhood") ??
     v4Component(best, "sublocality") ??
     v4Component(best, "sublocality_level_1") ??
-    "Yaba";
+    zoneNameForPoint(lat, lng);
   return { id: `geo:${lat.toFixed(6)},${lng.toFixed(6)}`, name, area, lat, lng };
 }
 
@@ -297,7 +328,7 @@ async function reverseFromGeocoding(lat: number, lng: number): Promise<PlaceDeta
     geoComponent(best, "neighborhood") ??
     geoComponent(best, "sublocality") ??
     geoComponent(best, "sublocality_level_1") ??
-    "Yaba";
+    zoneNameForPoint(lat, lng);
 
   return {
     id: `geo:${lat.toFixed(6)},${lng.toFixed(6)}`,
@@ -340,7 +371,7 @@ async function reverseFromNearby(lat: number, lng: number): Promise<PlaceDetails
   return {
     id: `near:${lat.toFixed(6)},${lng.toFixed(6)}`,
     name: isWeakLabel(name) ? streetPart || name : name,
-    area: "Yaba",
+    area: zoneNameForPoint(lat, lng),
     lat,
     lng,
   };
@@ -350,9 +381,9 @@ export async function reverseGeocode(lat: number, lng: number): Promise<PlaceDet
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     throw new AppError("Invalid coordinates", "VALIDATION_ERROR", 400);
   }
-  if (!isInActiveServiceArea(lat, lng)) {
+  if (!isInLagos(lat, lng)) {
     throw new AppError(
-      "This location is outside the KoboRide service area.",
+      "KoboRide only picks up and drops off in Lagos.",
       "OUTSIDE_SERVICE_AREA",
       400,
     );

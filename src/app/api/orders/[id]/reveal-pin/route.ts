@@ -1,6 +1,6 @@
 import { api, json, options, AppError } from "@/lib/errors";
 import { requireUser } from "@/lib/auth";
-import { assertCustomerOwns, getOrderOrThrow, orderInclude, presentTrip } from "@/lib/orders";
+import { assertCustomerOwns, getOrderOrThrow, hasPickedUp, orderInclude, presentTrip } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 
 export const OPTIONS = () => options();
@@ -19,6 +19,14 @@ export const POST = api(async (req, ctx) => {
 
   if (order.deliveryPinRevealedAt) {
     return json({ trip: presentTrip(order) });
+  }
+
+  if (!hasPickedUp(order)) {
+    throw new AppError(
+      "Share the code when the rider is heading to drop-off",
+      "INVALID_STATUS",
+      409,
+    );
   }
 
   const updated = await prisma.order.update({

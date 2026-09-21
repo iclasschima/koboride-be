@@ -91,9 +91,9 @@ export async function sendPushToUser(
   });
 }
 
-async function availableRiderIds(): Promise<string[]> {
+async function availableRiderIds(zoneSlug: string): Promise<string[]> {
   const riders = await prisma.rider.findMany({
-    where: { approved: true, availability: "ONLINE" },
+    where: { approved: true, availability: "ONLINE", zoneSlug },
     select: { id: true },
   });
   if (riders.length === 0) return [];
@@ -110,9 +110,10 @@ export async function notifySearchingRider(order: {
   id: string;
   pickup: string;
   dropoff: string;
+  zoneSlug: string;
 }): Promise<void> {
   await runPush(async () => {
-    const riderIds = await availableRiderIds();
+    const riderIds = await availableRiderIds(order.zoneSlug);
     if (riderIds.length === 0) return;
     const rows = await prisma.pushSubscription.findMany({
       where: { role: "rider", userId: { in: riderIds } },

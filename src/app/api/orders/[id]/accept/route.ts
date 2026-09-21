@@ -3,6 +3,7 @@ import { requireRider } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { orderInclude, presentRiderTrip } from "@/lib/orders";
 import { notifyAdminOrderStatus, notifyOrderAccepted } from "@/lib/push";
+import { acceptDispatchingWhere } from "@/lib/dispatch";
 
 export const OPTIONS = () => options();
 
@@ -19,12 +20,22 @@ export const POST = api(async (req, ctx) => {
   }
 
   const taken = await prisma.order.updateMany({
-    where: { id, status: "dispatching" },
+    where: acceptDispatchingWhere(id, rider.zoneSlug),
     data: { riderId: rider.id, status: "in_progress", riderPhase: "accepted" },
   });
   if (taken.count === 0) {
     const order = await prisma.order.findUnique({ where: { id } });
     if (!order) throw new AppError("Order not found", "ORDER_NOT_FOUND", 404);
+    if (order.zoneSlug !== rider.zoneSlug) {
+      throw new AppError(
+        "This order is in a different delivery zone",
+        "ZONE_MISMATCH",
+        403,
+      );
+    }
+    if (order.scheduledFor && order.scheduledFor.getTime() > Date.now()) {
+      throw new AppError("This order is scheduled for later", "NOT_YET_AVAILABLE", 409);
+    }
     throw new AppError("This order was already taken", "ALREADY_ASSIGNED", 409);
   }
 

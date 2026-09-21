@@ -6,12 +6,18 @@ import { config } from "@/lib/config";
 import { quoteRoute } from "@/lib/fare";
 import { preferredPhone } from "@/lib/phone";
 import { getMaxActiveOrders } from "@/lib/settings";
+import { zoneName } from "@/lib/zones";
 import { nairaToKobo, refundPaystack, verifyPaystack } from "@/lib/paystack";
 import {
   notifyAdminNewOrder,
   notifyOrderAccepted,
   notifySearchingRider,
 } from "@/lib/push";
+import {
+  dispatchPresentation,
+  SYSTEM_CANCEL_REASONS,
+  writeOrderEvent,
+} from "@/lib/dispatch";
 
 export const orderInclude = {
   rider: { select: { id: true, name: true, phone: true, photoUrl: true } },
@@ -93,12 +99,19 @@ function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
     id: order.id,
     pickup: order.pickup,
     dropoff: order.dropoff,
+    pickupLat: order.pickupLat,
+    pickupLng: order.pickupLng,
+    dropoffLat: order.dropoffLat,
+    dropoffLng: order.dropoffLng,
     notes: order.notes ?? "",
     senderName: order.senderName,
     senderPhone: order.senderPhone,
     receiverName: order.receiverName,
     receiverPhone: order.receiverPhone,
     customerRole: order.customerRole,
+    farePayer: order.farePayer,
+    zoneSlug: order.zoneSlug,
+    zoneName: zoneName(order.zoneSlug),
     feeNgn: order.feeNgn,
     status: order.status,
     riderPhase: order.riderPhase,
@@ -124,6 +137,7 @@ function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
     deliveryProofNote: order.deliveryProofNote,
     deliveryProofPhotoUrl: order.deliveryProofPhotoUrl,
     cancelReason: order.cancelReason,
+    ...dispatchPresentation(order),
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),
     completedAt: order.completedAt?.toISOString() ?? null,
@@ -274,6 +288,15 @@ export async function countActiveOrders(customerId: string): Promise<number> {
   });
 }
 
+/** Next booking is free after the first completed trip, until that second trip exists. */
+export async function isSecondOrderFree(customerId: string): Promise<boolean> {
+  const [completed, active] = await Promise.all([
+    prisma.order.count({ where: { customerId, status: "completed" } }),
+    countActiveOrders(customerId),
+  ]);
+  return completed === 1 && active === 0;
+}
+
 export async function countRecentCancels(
   customerId: string,
   resetAt?: Date | null,
@@ -283,14 +306,27 @@ export async function countRecentCancels(
       customerId,
       status: "cancelled",
       updatedAt: { gte: cancelWindowStart(resetAt) },
+      NOT: { cancelReason: { in: [...SYSTEM_CANCEL_REASONS] } },
     },
   });
 }
 
-export async function assertCustomerCancelAllowed(
-  customerId: string,
-  order: { status: string; riderPhase: RiderPhase | null },
-): Promise<void> {
+export function isCancelLimited(recentCancels: number): boolean {
+  return recentCancels >= config.maxCancelsPerWindow;
+}
+
+export function cancelWindowLabel(hours = config.cancelWindowHours): string {
+  return hours === 1 ? "hour" : `${hours} hours`;
+}
+
+export function cancelHoldMessage(): string {
+  return `You've cancelled ${config.maxCancelsPerWindow} orders in the last ${cancelWindowLabel()}. You can book again later.`;
+}
+
+export function assertCustomerCancelAllowed(order: {
+  status: string;
+  riderPhase: RiderPhase | null;
+}): void {
   if (!customerCanCancel(order)) {
     throw new AppError(
       "You can only cancel before the rider picks up the package",
@@ -298,18 +334,17 @@ export async function assertCustomerCancelAllowed(
       409,
     );
   }
+}
 
+export async function assertCustomerCanBook(customerId: string): Promise<void> {
   const customer = await prisma.customer.findUnique({
     where: { id: customerId },
     select: { cancelLimitResetAt: true },
   });
-  const recent = await countRecentCancels(customerId, customer?.cancelLimitResetAt);
-  if (recent >= config.maxCancelsPerWindow) {
-    throw new AppError(
-      `You've cancelled ${config.maxCancelsPerWindow} orders in the last ${config.cancelWindowHours} hours. Try again later.`,
-      "CANCEL_LIMIT_REACHED",
-      429,
-    );
+  if (!customer) throw new AppError("Customer not found", "NOT_FOUND", 404);
+  const recent = await countRecentCancels(customerId, customer.cancelLimitResetAt);
+  if (isCancelLimited(recent)) {
+    throw new AppError(cancelHoldMessage(), "CANCEL_LIMIT_REACHED", 429);
   }
 }
 
@@ -361,6 +396,7 @@ export type PlaceOrderInput = {
   receiverPhone: string;
   customerRole?: CustomerRole;
   riderId?: string;
+  farePayer?: CustomerRole;
   paymentMethod?: PaymentMethod;
   paystackReference?: string;
 };
@@ -434,6 +470,19 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
   }
 
   const paymentMethod: PaymentMethod = input.paymentMethod === "paystack" ? "paystack" : "cash";
+  const customerRole: CustomerRole =
+    input.customerRole === "receiver" ? "receiver" : "sender";
+  const farePayer: CustomerRole =
+    input.farePayer === "receiver" || input.farePayer === "sender"
+      ? input.farePayer
+      : customerRole;
+  if (paymentMethod === "paystack" && farePayer !== customerRole) {
+    throw new AppError(
+      "Only the person booking can pay online. Choose cash if the other person will pay.",
+      "VALIDATION_ERROR",
+      400,
+    );
+  }
   const quote = await quoteRoute({ ...input, paymentMethod });
   let riderId: string | undefined;
   if (input.riderId) {
@@ -442,14 +491,22 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
     });
     if (!rider?.approved)
       throw new AppError("Rider is not approved", "RIDER_NOT_APPROVED", 400);
+    if (rider.zoneSlug !== quote.zoneSlug) {
+      throw new AppError(
+        `This rider is assigned to ${zoneName(rider.zoneSlug)}, not ${zoneName(quote.zoneSlug)}.`,
+        "ZONE_MISMATCH",
+        400,
+      );
+    }
     riderId = rider.id;
   }
 
   let paymentStatus: PaymentStatus = "unpaid";
   let paystackReference: string | null = null;
   let paidAt: Date | null = null;
+  const previewFree = await isSecondOrderFree(input.customerId);
 
-  if (paymentMethod === "paystack") {
+  if (paymentMethod === "paystack" && !previewFree) {
     const ref = input.paystackReference?.trim();
     if (!ref) throw new AppError("Payment reference is missing", "VALIDATION_ERROR", 400);
     const used = await prisma.order.findUnique({ where: { paystackReference: ref } });
@@ -468,12 +525,17 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
 
   const maxActiveOrders = await getMaxActiveOrders();
   const order = await prisma.$transaction(async (tx) => {
-    const active = await tx.order.count({
-      where: {
-        customerId: input.customerId,
-        status: { in: [...ACTIVE_ORDER_STATUSES] },
-      },
-    });
+    const [active, completed] = await Promise.all([
+      tx.order.count({
+        where: {
+          customerId: input.customerId,
+          status: { in: [...ACTIVE_ORDER_STATUSES] },
+        },
+      }),
+      tx.order.count({
+        where: { customerId: input.customerId, status: "completed" },
+      }),
+    ]);
     if (active >= maxActiveOrders) {
       throw new AppError(
         `You can have at most ${maxActiveOrders} live orders. Finish or cancel one first.`,
@@ -481,6 +543,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
         429,
       );
     }
+    const secondFree = completed === 1 && active === 0;
 
     return tx.order.create({
       data: {
@@ -492,18 +555,20 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
         senderPhone: input.senderPhone,
         receiverName: input.receiverName,
         receiverPhone: input.receiverPhone,
-        customerRole: input.customerRole ?? "sender",
+        customerRole,
+        farePayer,
         pickupLat: quote.pickupLat,
         pickupLng: quote.pickupLng,
         dropoffLat: quote.dropoffLat,
         dropoffLng: quote.dropoffLng,
-        feeNgn: quote.feeNgn,
+        zoneSlug: quote.zoneSlug,
+        feeNgn: secondFree ? 0 : quote.feeNgn,
         payoutNgn: quote.payoutNgn,
         distanceKm: quote.distanceKm,
-        paymentMethod,
-        paymentStatus,
-        paystackReference,
-        paidAt,
+        paymentMethod: secondFree ? "cash" : paymentMethod,
+        paymentStatus: secondFree ? "unpaid" : paymentStatus,
+        paystackReference: secondFree ? null : paystackReference,
+        paidAt: secondFree ? null : paidAt,
         deliveryPin: generateDeliveryPin(),
         ...(riderId
           ? {
@@ -517,6 +582,11 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
     });
   });
 
+  if (order.feeNgn === 0) {
+    await writeOrderEvent(order.id, "second_order_free", {
+      listFeeNgn: quote.listFeeNgn,
+    });
+  }
   if (order.riderId) await notifyOrderAccepted(order);
   else await notifySearchingRider(order);
   await notifyAdminNewOrder(order);

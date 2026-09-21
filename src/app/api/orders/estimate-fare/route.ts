@@ -2,7 +2,9 @@ import { z } from "zod";
 import { api, json, options } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
 import { rateLimit } from "@/lib/rate-limit";
+import { optionalUser } from "@/lib/auth";
 import { customerFeeNgn, quoteRoute } from "@/lib/fare";
+import { isSecondOrderFree } from "@/lib/orders";
 import { getPlatformSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
@@ -37,21 +39,29 @@ export const POST = api(async (req) => {
     getPlatformSettings(),
   ]);
 
-  const onlineFeeNgn = customerFeeNgn(
-    quote.listFeeNgn,
-    "paystack",
-    settings.onlinePaymentDiscountNgn,
-  );
+  const user = optionalUser(req);
+  const secondOrderFree =
+    user?.role === "customer" ? await isSecondOrderFree(user.sub) : false;
+
+  const onlineFeeNgn = secondOrderFree
+    ? 0
+    : customerFeeNgn(
+        quote.listFeeNgn,
+        "paystack",
+        settings.onlinePaymentDiscountNgn,
+      );
 
   return json({
-    feeNgn: quote.listFeeNgn,
+    feeNgn: secondOrderFree ? 0 : quote.listFeeNgn,
+    listFeeNgn: quote.listFeeNgn,
     onlineFeeNgn,
-    onlineDiscountNgn: quote.listFeeNgn - onlineFeeNgn,
+    onlineDiscountNgn: secondOrderFree ? quote.listFeeNgn : quote.listFeeNgn - onlineFeeNgn,
     payoutNgn: quote.payoutNgn,
     distanceKm: quote.distanceKm,
     maxDistanceKm: quote.maxDistanceKm,
     baseFeeNgn: settings.baseFeeNgn,
     perKmFeeNgn: settings.perKmFeeNgn,
     minFareNgn: settings.minFareNgn,
+    secondOrderFree,
   });
 });

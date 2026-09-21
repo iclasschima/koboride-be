@@ -92,10 +92,15 @@ export async function verifyPaystack(reference: string): Promise<{
   return { amountKobo: data.amount, status: data.status };
 }
 
-export async function refundPaystack(reference: string): Promise<{ id: string; status: string }> {
+export async function refundPaystack(
+  reference: string,
+  amountKobo?: number,
+): Promise<{ id: string; status: string }> {
+  const body: { transaction: string; amount?: number } = { transaction: reference };
+  if (amountKobo != null && amountKobo > 0) body.amount = amountKobo;
   const data = await paystack<{ id?: number | string; status?: string }>("/refund", {
     method: "POST",
-    body: JSON.stringify({ transaction: reference }),
+    body: JSON.stringify(body),
   });
   return { id: String(data.id ?? reference), status: data.status ?? "pending" };
 }

@@ -12,6 +12,7 @@ import {
   refundIfPaidOnline,
 } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
+import { maybeRetentionOffer, writeOrderEvent } from "@/lib/dispatch";
 import {
   notifyAdminOrderStatus,
   notifyCustomerPaymentRefunded,
@@ -35,7 +36,18 @@ export const POST = api(async (req, ctx) => {
 
   const order = await getOrderOrThrow(id);
   assertCustomerOwns(order, user.sub);
-  await assertCustomerCancelAllowed(user.sub, order);
+  assertCustomerCancelAllowed(order);
+
+  const offer = await maybeRetentionOffer(order);
+  if (offer) {
+    const latest = await getOrderOrThrow(id);
+    return json({
+      offerAvailable: true,
+      discountAmount: offer.discountAmount,
+      trip: presentTrip(latest),
+    });
+  }
+
   const cancelReason = normalizeCancelReason(body.reason, body.note);
   const refund = await refundIfPaidOnline(order);
 
@@ -43,6 +55,10 @@ export const POST = api(async (req, ctx) => {
     where: { id: order.id },
     data: { status: "cancelled", cancelReason, ...refund },
     include: orderInclude,
+  });
+  await writeOrderEvent(order.id, "cancelled", {
+    reason: cancelReason,
+    refunded: refund.paymentStatus === "refunded",
   });
   await notifyAdminOrderStatus(updated);
   if (updated.riderId) await notifyRiderOrderCancelled(updated);

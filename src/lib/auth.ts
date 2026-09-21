@@ -29,6 +29,17 @@ export function verifyToken(token: string): AuthUser {
   }
 }
 
+export function optionalUser(req: Request): AuthUser | null {
+  const header = req.headers.get("authorization") ?? "";
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  if (!match?.[1]) return null;
+  try {
+    return verifyToken(match[1]);
+  } catch {
+    return null;
+  }
+}
+
 export function requireUser(req: Request, roles?: Role[]): AuthUser {
   const header = req.headers.get("authorization") ?? "";
   const match = header.match(/^Bearer\s+(.+)$/i);

@@ -1,6 +1,7 @@
 import type { RiderIdType } from "@prisma/client";
 import { AppError } from "@/lib/errors";
 import { normalizePhone } from "@/lib/phone";
+import { defaultZoneSlug, isKnownZoneSlug, zoneName } from "@/lib/zones";
 
 export const RIDER_ID_TYPES = [
   "nin",
@@ -76,6 +77,14 @@ export function riderDocsComplete(rider: {
   );
 }
 
+export function parseZoneSlug(raw: unknown, fallback = defaultZoneSlug()): string {
+  const slug = String(raw ?? "").trim().toUpperCase() || fallback;
+  if (!isKnownZoneSlug(slug)) {
+    throw new AppError("Pick a delivery zone", "VALIDATION_ERROR", 400);
+  }
+  return slug;
+}
+
 export function presentOpsRider(rider: {
   id: string;
   name: string;
@@ -83,6 +92,7 @@ export function presentOpsRider(rider: {
   photoUrl?: string | null;
   approved: boolean;
   createdAt: Date;
+  zoneSlug?: string | null;
   idType?: RiderIdType | null;
   idNumber?: string | null;
   idDocumentUrl?: string | null;
@@ -90,6 +100,7 @@ export function presentOpsRider(rider: {
   nextOfKinPhone?: string | null;
   nextOfKinRelationship?: string | null;
 }) {
+  const zoneSlug = rider.zoneSlug || defaultZoneSlug();
   return {
     id: rider.id,
     role: "rider" as const,
@@ -99,6 +110,8 @@ export function presentOpsRider(rider: {
     approved: rider.approved,
     active: rider.approved,
     createdAt: rider.createdAt.toISOString(),
+    zoneSlug,
+    zoneName: zoneName(zoneSlug),
     idType: rider.idType ?? null,
     idNumber: rider.idNumber ?? null,
     idDocumentUrl: rider.idDocumentUrl ?? null,

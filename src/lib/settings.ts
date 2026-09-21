@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { config } from "@/lib/config";
+import { activeZones, getPricingZones, type PricingZone } from "@/lib/zones";
 
 export const MAX_ACTIVE_ORDERS_KEY = "maxActiveOrders";
 export const PLATFORM_CUT_KEY = "platformCutPercent";
@@ -11,10 +12,14 @@ export const BASE_FEE_KEY = "baseFeeNgn";
 export const PER_KM_FEE_KEY = "perKmFeeNgn";
 export const MIN_FARE_KEY = "minFareNgn";
 export const ONLINE_DISCOUNT_KEY = "onlinePaymentDiscountNgn";
+export const STILL_LOOKING_KEY = "stillLookingAfterMinutes";
+export const RESCHEDULE_DELAY_KEY = "rescheduleDelayMinutes";
 
 const MAX_ACTIVE_ORDERS_CEILING = 50;
 const FARE_AMOUNT_MAX = 50_000;
 const ONLINE_DISCOUNT_MAX = 5_000;
+const STILL_LOOKING_MINUTES_MAX = 120;
+const RESCHEDULE_DELAY_MINUTES_MAX = 240;
 
 export type PlatformSettings = {
   maxActiveOrders: number;
@@ -24,15 +29,22 @@ export type PlatformSettings = {
   perKmFeeNgn: number;
   minFareNgn: number;
   onlinePaymentDiscountNgn: number;
+  /** Minutes searching with no rider before we offer a cheaper retry. */
+  stillLookingAfterMinutes: number;
+  /** Minutes to pause search when the customer takes that retry. */
+  rescheduleDelayMinutes: number;
 };
 
 export type ClientAppStatus = {
   nonce: number;
   paystackEnabled: boolean;
+  zones: PricingZone[];
+  maxDeliveryDistanceKm: number;
 };
 
 const CLIENT_REFRESH_HEADER = "X-Kobo-Refresh";
 let refreshCache: { at: number; nonce: number } | null = null;
+let settingsCache: { at: number; value: PlatformSettings } | null = null;
 
 const SETTINGS_KEYS = [
   MAX_ACTIVE_ORDERS_KEY,
@@ -42,10 +54,26 @@ const SETTINGS_KEYS = [
   PER_KM_FEE_KEY,
   MIN_FARE_KEY,
   ONLINE_DISCOUNT_KEY,
+  STILL_LOOKING_KEY,
+  RESCHEDULE_DELAY_KEY,
 ] as const;
+
+export function minutesToMs(minutes: number): number {
+  return Math.max(0, minutes) * 60_000;
+}
+
+function minutesFromMs(ms: number, fallback: number): number {
+  const n = Math.round(ms / 60_000);
+  return n >= 1 ? n : fallback;
+}
 
 function invalidateClientRefreshCache() {
   refreshCache = null;
+}
+
+function invalidateSettingsCache() {
+  settingsCache = null;
+  invalidateClientRefreshCache();
 }
 
 export async function attachClientRefreshHeader(res: NextResponse): Promise<void> {
@@ -74,32 +102,78 @@ function parseIntInRange(
   return Number.isInteger(n) && n >= min && n <= max ? n : fallback;
 }
 
-export async function getPlatformSettings(): Promise<PlatformSettings> {
-  const rows = await prisma.appSetting.findMany({
-    where: { key: { in: [...SETTINGS_KEYS] } },
-  });
-  const map = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+function defaultPlatformSettings(): PlatformSettings {
   return {
-    maxActiveOrders: parsePositiveInt(map[MAX_ACTIVE_ORDERS_KEY], config.maxActiveOrders),
-    platformCutPercent: parseIntInRange(map[PLATFORM_CUT_KEY], config.platformCutPercent, 0, 50),
-    clientRefreshNonce: parseIntInRange(map[CLIENT_REFRESH_NONCE_KEY], 0, 0, Number.MAX_SAFE_INTEGER),
-    baseFeeNgn: parseIntInRange(map[BASE_FEE_KEY], config.baseFeeNgn, 0, FARE_AMOUNT_MAX),
-    perKmFeeNgn: parseIntInRange(map[PER_KM_FEE_KEY], config.perKmFeeNgn, 0, FARE_AMOUNT_MAX),
-    minFareNgn: parseIntInRange(map[MIN_FARE_KEY], config.minFareNgn, 0, FARE_AMOUNT_MAX),
+    maxActiveOrders: config.maxActiveOrders,
+    platformCutPercent: config.platformCutPercent,
+    clientRefreshNonce: 0,
+    baseFeeNgn: config.baseFeeNgn,
+    perKmFeeNgn: config.perKmFeeNgn,
+    minFareNgn: config.minFareNgn,
+    onlinePaymentDiscountNgn: config.onlinePaymentDiscountNgn,
+    stillLookingAfterMinutes: minutesFromMs(config.stillLookingAfterMs, 8),
+    rescheduleDelayMinutes: minutesFromMs(config.rescheduleDelayMs, 30),
+  };
+}
+
+export function cachedPlatformSettings(): PlatformSettings {
+  return settingsCache?.value ?? defaultPlatformSettings();
+}
+
+function settingsFromMap(map: Record<string, string | undefined>): PlatformSettings {
+  const fallback = defaultPlatformSettings();
+  return {
+    maxActiveOrders: parsePositiveInt(map[MAX_ACTIVE_ORDERS_KEY], fallback.maxActiveOrders),
+    platformCutPercent: parseIntInRange(map[PLATFORM_CUT_KEY], fallback.platformCutPercent, 0, 50),
+    clientRefreshNonce: parseIntInRange(
+      map[CLIENT_REFRESH_NONCE_KEY],
+      fallback.clientRefreshNonce,
+      0,
+      Number.MAX_SAFE_INTEGER,
+    ),
+    baseFeeNgn: parseIntInRange(map[BASE_FEE_KEY], fallback.baseFeeNgn, 0, FARE_AMOUNT_MAX),
+    perKmFeeNgn: parseIntInRange(map[PER_KM_FEE_KEY], fallback.perKmFeeNgn, 0, FARE_AMOUNT_MAX),
+    minFareNgn: parseIntInRange(map[MIN_FARE_KEY], fallback.minFareNgn, 0, FARE_AMOUNT_MAX),
     onlinePaymentDiscountNgn: parseIntInRange(
       map[ONLINE_DISCOUNT_KEY],
-      config.onlinePaymentDiscountNgn,
+      fallback.onlinePaymentDiscountNgn,
       0,
       ONLINE_DISCOUNT_MAX,
+    ),
+    stillLookingAfterMinutes: parseIntInRange(
+      map[STILL_LOOKING_KEY],
+      fallback.stillLookingAfterMinutes,
+      1,
+      STILL_LOOKING_MINUTES_MAX,
+    ),
+    rescheduleDelayMinutes: parseIntInRange(
+      map[RESCHEDULE_DELAY_KEY],
+      fallback.rescheduleDelayMinutes,
+      1,
+      RESCHEDULE_DELAY_MINUTES_MAX,
     ),
   };
 }
 
+export async function getPlatformSettings(): Promise<PlatformSettings> {
+  const now = Date.now();
+  if (settingsCache && now - settingsCache.at < 2_000) return settingsCache.value;
+  const rows = await prisma.appSetting.findMany({
+    where: { key: { in: [...SETTINGS_KEYS] } },
+  });
+  const map = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  const value = settingsFromMap(map);
+  settingsCache = { at: now, value };
+  return value;
+}
+
 export async function getClientAppStatus(): Promise<ClientAppStatus> {
-  const settings = await getPlatformSettings();
+  const [settings] = await Promise.all([getPlatformSettings(), getPricingZones()]);
   return {
     nonce: settings.clientRefreshNonce,
     paystackEnabled: Boolean(config.paystackSecretKey.trim() && config.paystackPublicKey.trim()),
+    zones: activeZones(),
+    maxDeliveryDistanceKm: config.maxDeliveryDistanceKm,
   };
 }
 
@@ -127,21 +201,26 @@ function assertFareAmount(label: string, value: number, max: number): void {
   }
 }
 
-export async function updatePlatformSettings(
+function hasSettingsPatch(
   input: Partial<PlatformSettings> & { bumpClientRefresh?: boolean },
-): Promise<PlatformSettings> {
-  const hasFareUpdate =
+): boolean {
+  return (
+    input.maxActiveOrders !== undefined ||
+    input.platformCutPercent !== undefined ||
     input.baseFeeNgn !== undefined ||
     input.perKmFeeNgn !== undefined ||
     input.minFareNgn !== undefined ||
-    input.onlinePaymentDiscountNgn !== undefined;
+    input.onlinePaymentDiscountNgn !== undefined ||
+    input.stillLookingAfterMinutes !== undefined ||
+    input.rescheduleDelayMinutes !== undefined ||
+    input.bumpClientRefresh === true
+  );
+}
 
-  if (
-    input.maxActiveOrders === undefined &&
-    input.platformCutPercent === undefined &&
-    !hasFareUpdate &&
-    input.bumpClientRefresh !== true
-  ) {
+export async function updatePlatformSettings(
+  input: Partial<PlatformSettings> & { bumpClientRefresh?: boolean },
+): Promise<PlatformSettings> {
+  if (!hasSettingsPatch(input)) {
     throw new AppError("Nothing to update", "VALIDATION_ERROR", 400);
   }
 
@@ -157,6 +236,10 @@ export async function updatePlatformSettings(
     minFareNgn: input.minFareNgn ?? current.minFareNgn,
     onlinePaymentDiscountNgn:
       input.onlinePaymentDiscountNgn ?? current.onlinePaymentDiscountNgn,
+    stillLookingAfterMinutes:
+      input.stillLookingAfterMinutes ?? current.stillLookingAfterMinutes,
+    rescheduleDelayMinutes:
+      input.rescheduleDelayMinutes ?? current.rescheduleDelayMinutes,
   };
 
   if (
@@ -181,6 +264,28 @@ export async function updatePlatformSettings(
   assertFareAmount("Per-km rate", next.perKmFeeNgn, FARE_AMOUNT_MAX);
   assertFareAmount("Minimum fare", next.minFareNgn, FARE_AMOUNT_MAX);
   assertFareAmount("Online payment discount", next.onlinePaymentDiscountNgn, ONLINE_DISCOUNT_MAX);
+  if (
+    !Number.isInteger(next.stillLookingAfterMinutes) ||
+    next.stillLookingAfterMinutes < 1 ||
+    next.stillLookingAfterMinutes > STILL_LOOKING_MINUTES_MAX
+  ) {
+    throw new AppError(
+      `Propose-discount wait must be between 1 and ${STILL_LOOKING_MINUTES_MAX} minutes`,
+      "VALIDATION_ERROR",
+      400,
+    );
+  }
+  if (
+    !Number.isInteger(next.rescheduleDelayMinutes) ||
+    next.rescheduleDelayMinutes < 1 ||
+    next.rescheduleDelayMinutes > RESCHEDULE_DELAY_MINUTES_MAX
+  ) {
+    throw new AppError(
+      `Retry wait must be between 1 and ${RESCHEDULE_DELAY_MINUTES_MAX} minutes`,
+      "VALIDATION_ERROR",
+      400,
+    );
+  }
 
   await Promise.all([
     upsertSetting(MAX_ACTIVE_ORDERS_KEY, String(next.maxActiveOrders)),
@@ -190,8 +295,10 @@ export async function updatePlatformSettings(
     upsertSetting(PER_KM_FEE_KEY, String(next.perKmFeeNgn)),
     upsertSetting(MIN_FARE_KEY, String(next.minFareNgn)),
     upsertSetting(ONLINE_DISCOUNT_KEY, String(next.onlinePaymentDiscountNgn)),
+    upsertSetting(STILL_LOOKING_KEY, String(next.stillLookingAfterMinutes)),
+    upsertSetting(RESCHEDULE_DELAY_KEY, String(next.rescheduleDelayMinutes)),
   ]);
-  if (input.bumpClientRefresh) invalidateClientRefreshCache();
+  invalidateSettingsCache();
   return getPlatformSettings();
 }
 
@@ -203,16 +310,8 @@ export const platformSettingsPatchSchema = z
     perKmFeeNgn: z.number().int().min(0).max(FARE_AMOUNT_MAX).optional(),
     minFareNgn: z.number().int().min(0).max(FARE_AMOUNT_MAX).optional(),
     onlinePaymentDiscountNgn: z.number().int().min(0).max(ONLINE_DISCOUNT_MAX).optional(),
+    stillLookingAfterMinutes: z.number().int().min(1).max(STILL_LOOKING_MINUTES_MAX).optional(),
+    rescheduleDelayMinutes: z.number().int().min(1).max(RESCHEDULE_DELAY_MINUTES_MAX).optional(),
     bumpClientRefresh: z.literal(true).optional(),
   })
-  .refine(
-    (body) =>
-      body.maxActiveOrders !== undefined ||
-      body.platformCutPercent !== undefined ||
-      body.baseFeeNgn !== undefined ||
-      body.perKmFeeNgn !== undefined ||
-      body.minFareNgn !== undefined ||
-      body.onlinePaymentDiscountNgn !== undefined ||
-      body.bumpClientRefresh === true,
-    { message: "Nothing to update" },
-  );
+  .refine(hasSettingsPatch, { message: "Nothing to update" });

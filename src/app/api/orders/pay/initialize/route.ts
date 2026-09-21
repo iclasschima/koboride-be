@@ -3,7 +3,12 @@ import { parseBody, readJson, customerBookingSchema } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { quoteRoute } from "@/lib/fare";
-import { countActiveOrders, resolveCustomerContacts } from "@/lib/orders";
+import {
+  assertCustomerCanBook,
+  countActiveOrders,
+  isSecondOrderFree,
+  resolveCustomerContacts,
+} from "@/lib/orders";
 import { getMaxActiveOrders } from "@/lib/settings";
 import {
   initializePaystack,
@@ -25,6 +30,7 @@ export const POST = api(async (req) => {
   const body = parseBody(customerBookingSchema, await readJson(req));
   const customer = await prisma.customer.findUnique({ where: { id: user.sub } });
   if (!customer) throw new AppError("Customer not found", "NOT_FOUND", 404);
+  await assertCustomerCanBook(customer.id);
 
   resolveCustomerContacts({
     customerRole: body.customerRole,
@@ -35,6 +41,14 @@ export const POST = api(async (req) => {
     receiverName: body.receiverName,
     receiverPhone: body.receiverPhone,
   });
+
+  if (await isSecondOrderFree(customer.id)) {
+    throw new AppError(
+      "This order is free — no payment needed.",
+      "SECOND_ORDER_FREE",
+      409,
+    );
+  }
 
   const [quote, maxActiveOrders, active] = await Promise.all([
     quoteRoute({ ...body, paymentMethod: "paystack" }),
