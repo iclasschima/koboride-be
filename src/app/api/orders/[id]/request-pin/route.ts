@@ -1,6 +1,6 @@
 import { api, json, options, AppError } from "@/lib/errors";
 import { requireRider } from "@/lib/auth";
-import { getOrderOrThrow, hasPickedUp, orderInclude, presentRiderTrip } from "@/lib/orders";
+import { getOrderOrThrow, hasPickedUp, orderInclude, orderNeedsDeliveryPin, presentRiderTrip } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 import { notifyDeliveryPinRequested } from "@/lib/push";
 
@@ -19,6 +19,10 @@ export const POST = api(async (req, ctx) => {
   }
   if (order.status !== "in_progress") {
     throw new AppError("This job is not in progress", "INVALID_STATUS", 409);
+  }
+
+  if (!orderNeedsDeliveryPin(order)) {
+    throw new AppError("This order does not use a delivery PIN", "INVALID_STATUS", 409);
   }
 
   if (order.deliveryPinRevealedAt) {

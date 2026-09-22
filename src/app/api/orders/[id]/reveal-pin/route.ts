@@ -1,6 +1,6 @@
 import { api, json, options, AppError } from "@/lib/errors";
 import { requireUser } from "@/lib/auth";
-import { assertCustomerOwns, getOrderOrThrow, hasPickedUp, orderInclude, presentTrip } from "@/lib/orders";
+import { assertCustomerOwns, getOrderOrThrow, hasPickedUp, orderInclude, orderNeedsDeliveryPin, presentTrip } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 
 export const OPTIONS = () => options();
@@ -15,6 +15,10 @@ export const POST = api(async (req, ctx) => {
 
   if (order.status === "completed" || order.status === "cancelled") {
     throw new AppError("This order is no longer active", "INVALID_STATUS", 409);
+  }
+
+  if (!orderNeedsDeliveryPin(order)) {
+    throw new AppError("This order does not use a delivery PIN", "INVALID_STATUS", 409);
   }
 
   if (order.deliveryPinRevealedAt) {

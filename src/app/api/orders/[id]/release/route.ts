@@ -8,6 +8,7 @@ import {
   getOrderOrThrow,
   normalizeReleaseReason,
   orderInclude,
+  orderNeedsDeliveryPin,
 } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 import {
@@ -57,7 +58,9 @@ export const POST = api(async (req, ctx) => {
         deliveryPinRequestedAt: null,
         deliveryPinRevealedAt: null,
         // A rider who saw the code must not keep a working one after walking away.
-        ...(order.deliveryPinRevealedAt ? { deliveryPin: generateDeliveryPin() } : {}),
+        ...(orderNeedsDeliveryPin(order) && order.deliveryPinRevealedAt
+          ? { deliveryPin: generateDeliveryPin() }
+          : {}),
       },
       include: orderInclude,
     });
