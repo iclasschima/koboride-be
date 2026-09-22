@@ -7,6 +7,7 @@ import {
   nextPhase,
   orderCompletedData,
   orderInclude,
+  orderNeedsDeliveryPin,
   presentRiderTrip,
 } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
@@ -71,7 +72,11 @@ export const POST = api(async (req, ctx) => {
     deliveryProofPhotoUrl?: string | null;
   } = { riderPhase };
 
-  if (riderPhase === "delivered" && order.riderPhase !== "delivered" && order.deliveryPin) {
+  if (
+    riderPhase === "delivered" &&
+    order.riderPhase !== "delivered" &&
+    orderNeedsDeliveryPin(order)
+  ) {
     const proof = await readProof(req);
     const pinOk = Boolean(proof.pin && deliveryPinsMatch(order.deliveryPin, proof.pin));
     const reason = proof.skipReason?.trim() ?? "";

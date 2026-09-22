@@ -94,6 +94,14 @@ export function deliveryPinsMatch(expected: string, given: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** PIN is only for send jobs — the customer is not at drop-off. */
+export function orderNeedsDeliveryPin(order: {
+  customerRole: string | null;
+  deliveryPin?: string | null;
+}): boolean {
+  return order.customerRole !== "receiver" && Boolean(order.deliveryPin);
+}
+
 function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
   return {
     id: order.id,
@@ -128,11 +136,12 @@ function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
     paidAt: order.paidAt?.toISOString() ?? null,
     refundedAt: order.refundedAt?.toISOString() ?? null,
     distanceKm: order.distanceKm,
-    deliveryPin: hideDeliveryPin ? null : order.deliveryPin,
+    deliveryPin:
+      hideDeliveryPin || !orderNeedsDeliveryPin(order) ? null : order.deliveryPin,
     deliveryPinRevealed: Boolean(order.deliveryPinRevealedAt),
     deliveryPinRequested: Boolean(order.deliveryPinRequestedAt),
     deliveryPinRequestedAt: order.deliveryPinRequestedAt?.toISOString() ?? null,
-    requiresDeliveryPin: Boolean(order.deliveryPin),
+    requiresDeliveryPin: orderNeedsDeliveryPin(order),
     deliveryProof: order.deliveryProof,
     deliveryProofNote: order.deliveryProofNote,
     deliveryProofPhotoUrl: order.deliveryProofPhotoUrl,
@@ -569,7 +578,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
         paymentStatus: secondFree ? "unpaid" : paymentStatus,
         paystackReference: secondFree ? null : paystackReference,
         paidAt: secondFree ? null : paidAt,
-        deliveryPin: generateDeliveryPin(),
+        deliveryPin: customerRole === "sender" ? generateDeliveryPin() : "",
         ...(riderId
           ? {
               riderId,
