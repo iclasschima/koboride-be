@@ -50,6 +50,12 @@ export const config = {
   cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME ?? "",
   cloudinaryApiKey: process.env.CLOUDINARY_API_KEY ?? "",
   cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET ?? "",
+  /** Termii SMS. DND route uses the approved sender "OE Alert". */
+  termiiApiKey: process.env.TERMII_API_KEY ?? "",
+  termiiBaseUrl: (process.env.TERMII_BASE_URL ?? "https://api.ng.termii.com").replace(/\/$/, ""),
+  /** Local only: include the code in the request response when Termii is unset. */
+  otpDevEcho: process.env.OTP_DEV_ECHO === "true" && process.env.NODE_ENV !== "production",
+  isProd: process.env.NODE_ENV === "production",
   /** Customer-initiated cancels allowed in the rolling window. */
   maxCancelsPerWindow: intEnv("MAX_CANCELS_PER_WINDOW", 3),
   /** Hours that window covers (default 1). */
