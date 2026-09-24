@@ -122,6 +122,25 @@ export function presentOpsRider(rider: {
   };
 }
 
+export function ratePercent(part: number, whole: number): number | null {
+  if (whole <= 0) return null;
+  return Math.round((part / whole) * 100);
+}
+
+/** Jobs they still have vs jobs they handed back. */
+export function riderKeepRate(
+  completedCount: number,
+  activeCount: number,
+  droppedCount: number,
+): number | null {
+  return ratePercent(completedCount + activeCount, completedCount + activeCount + droppedCount);
+}
+
+/** Share of settled zone jobs that got a rider. */
+export function zoneTakeRate(acceptedCount: number, cancelledCount: number): number | null {
+  return ratePercent(acceptedCount, acceptedCount + cancelledCount);
+}
+
 export function parseRiderVerification(input: {
   idType?: string;
   idNumber?: string;

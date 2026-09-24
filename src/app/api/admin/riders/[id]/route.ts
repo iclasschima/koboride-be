@@ -6,7 +6,14 @@ import { uploadRiderIdDocument, uploadRiderPhoto } from "@/lib/cloudinary";
 import { orderDurationSeconds, orderInclude, presentTrip } from "@/lib/orders";
 import { normalizePhone, phoneLookupKeys } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
-import { parseRiderVerification, parseZoneSlug, presentOpsRider } from "@/lib/riders";
+import {
+  parseRiderVerification,
+  parseZoneSlug,
+  presentOpsRider,
+  riderKeepRate,
+  zoneTakeRate,
+} from "@/lib/riders";
+import { defaultZoneSlug } from "@/lib/zones";
 
 export const OPTIONS = () => options();
 
@@ -90,6 +97,7 @@ export const GET = api(async (req, ctx) => {
   if (!rider) throw new AppError("Rider not found", "NOT_FOUND", 404);
 
   const completed = rider.orders.filter((order) => order.status === "completed");
+  const activeCount = rider.orders.filter((order) => order.status === "in_progress").length;
   const last = rider.orders[0];
   const durations = completed
     .map(orderDurationSeconds)
@@ -98,6 +106,13 @@ export const GET = api(async (req, ctx) => {
     durations.length > 0
       ? Math.round(durations.reduce((sum, seconds) => sum + seconds, 0) / durations.length)
       : null;
+  const zoneSlug = rider.zoneSlug || defaultZoneSlug();
+  const [zoneAccepted, zoneCancelled] = await Promise.all([
+    prisma.order.count({
+      where: { zoneSlug, status: { in: ["in_progress", "completed"] } },
+    }),
+    prisma.order.count({ where: { zoneSlug, status: "cancelled" } }),
+  ]);
 
   return json({
     rider: {
@@ -121,6 +136,8 @@ export const GET = api(async (req, ctx) => {
       ).length,
       lastDroppedAt: rider.releases[0]?.createdAt.toISOString() ?? null,
       lastDropReason: rider.releases[0]?.reason ?? null,
+      acceptanceRate: riderKeepRate(completed.length, activeCount, rider.releases.length),
+      zoneAcceptanceRate: zoneTakeRate(zoneAccepted, zoneCancelled),
     },
     trips: rider.orders.map(presentTrip),
   });
