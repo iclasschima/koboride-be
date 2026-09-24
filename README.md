@@ -14,7 +14,7 @@ npm run dev                   # :3001
 
 Admin: `admin@koboride.ng` / `ChangeMeNow!`
 
-Each user type has its own login. Customer and rider sign in with phone only — there is no SMS OTP.
+Each user type has its own login. Customers confirm a 4-digit code by SMS (Termii DND, sender `OE Alert`). Riders sign in with phone only.
 
 The frontend (`koboride-fe`) should set `NEXT_PUBLIC_API_URL=http://localhost:3001`.
 
@@ -24,11 +24,10 @@ Shared staging is the **`develop`** branch on both repos. Production is **`main`
 | ------ | ---- | ----- |
 | GET | `/api/health` | uptime |
 | GET | `/api/app` | `{ nonce }` — current app reload token; also sent as `X-Kobo-Refresh` on API responses |
-| POST | `/api/auth/customer/login` `{ phone }` | customer register/sign-in |
+| POST | `/api/auth/otp/request` `{ phone }` | text a 4-digit Termii code; expires in 10 minutes |
+| POST | `/api/auth/otp/verify` `{ phone, code }` | customer register/sign-in |
 | POST | `/api/auth/rider/login` `{ phone }` | rider sign-in (must already exist) |
 | POST | `/api/auth/admin/login` `{ email, password }` | ops sign-in |
-| POST | `/api/auth/otp/request` `{ phone }` | alias of customer login |
-| POST | `/api/auth/otp/verify` `{ phone, code }` | alias of customer login |
 | GET/PATCH | `/api/auth/me` `{ name }` | JWT role: customer, rider, or admin |
 | GET | `/api/places/autocomplete?q=&session=` | Google Places |
 | GET | `/api/places/details?id=&session=` | |
