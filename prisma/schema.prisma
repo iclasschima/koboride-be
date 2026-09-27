@@ -176,10 +176,19 @@ model Order {
   refundedAt  DateTime?
   /** Road distance pickup → dropoff, stored at quote time (km). */
   distanceKm  Float       @default(0)
+  /** OSRM GeoJSON LineString for pickup → dropoff. Cached once; it does not change. */
+  routeGeometry Json?
+  routeDurationSeconds Int?
+  /** Latest rider GPS, used for the customer's pickup then drop-off countdown. */
+  riderLat    Float?
+  riderLng    Float?
+  riderLocationAt DateTime?
 
   deliveryPin String
   deliveryPinRevealedAt DateTime?
   deliveryPinRequestedAt DateTime?
+  /** When the PIN was last texted to the receiver. The rider never receives it. */
+  deliveryPinSentAt DateTime?
   deliveryProof String?
   deliveryProofNote String?
   deliveryProofPhotoUrl String?

@@ -11,6 +11,7 @@ import {
   presentRiderTrip,
 } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
+import { askSenderToRevealPin, textDeliveryPinToReceiver } from "@/lib/deliveryPinSms";
 import { notifyAdminOrderStatus, notifyOrderDelivered } from "@/lib/push";
 
 export const OPTIONS = () => options();
@@ -104,11 +105,27 @@ export const POST = api(async (req, ctx) => {
     Object.assign(data, orderCompletedData());
   }
 
-  const updated = await prisma.order.update({
+  let updated = await prisma.order.update({
     where: { id: order.id },
     data,
     include: orderInclude,
   });
+  if (
+    riderPhase === "en_route_dropoff" &&
+    order.riderPhase !== "en_route_dropoff" &&
+    orderNeedsDeliveryPin(updated)
+  ) {
+    try {
+      updated = await textDeliveryPinToReceiver(updated);
+    } catch (err) {
+      console.error("[sms] delivery PIN", err);
+      try {
+        updated = await askSenderToRevealPin(updated);
+      } catch (revealErr) {
+        console.error("[sms] delivery PIN reveal fallback", revealErr);
+      }
+    }
+  }
   if (riderPhase === "delivered" && order.riderPhase !== "delivered") {
     await notifyOrderDelivered(updated);
   }

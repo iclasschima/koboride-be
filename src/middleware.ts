@@ -3,17 +3,13 @@ import type { NextRequest } from "next/server";
 
 function allowedOrigin(origin: string | null): string | null {
   if (!origin) return null;
-  const extra = (process.env.CORS_ORIGIN ?? "http://localhost:3000")
+  // Local dev allows every origin. Production uses CORS_ORIGIN from the environment.
+  if (process.env.NODE_ENV !== "production") return origin;
+  const extra = (process.env.CORS_ORIGIN ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  if (extra.includes(origin)) return origin;
-  try {
-    const { hostname } = new URL(origin);
-    if (hostname === "localhost" || hostname === "127.0.0.1") return origin;
-  } catch {
-    return null;
-  }
+  if (extra.includes("*") || extra.includes(origin)) return origin;
   return null;
 }
 

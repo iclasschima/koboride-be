@@ -44,6 +44,8 @@ export const config = {
   paystackSecretKey: process.env.PAYSTACK_SECRET_KEY ?? "",
   paystackPublicKey: process.env.PAYSTACK_PUBLIC_KEY ?? "",
   googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY ?? "",
+  /** Public demo is for local testing. Point this at a self-hosted OSRM in production. */
+  osrmBaseUrl: (process.env.OSRM_BASE_URL ?? "https://router.project-osrm.org").replace(/\/$/, ""),
   vapidPublicKey: process.env.VAPID_PUBLIC_KEY ?? "",
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY ?? "",
   vapidSubject: process.env.VAPID_SUBJECT ?? "mailto:hello@koboride.ng",

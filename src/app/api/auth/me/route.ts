@@ -32,6 +32,7 @@ export const GET = api(async (req) => {
         id: rider.id,
         approved: rider.approved,
         online: rider.availability === "ONLINE",
+        zoneSlug: rider.zoneSlug,
       },
     });
   }

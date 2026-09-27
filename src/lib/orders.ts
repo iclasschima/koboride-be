@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { config } from "@/lib/config";
 import { quoteRoute } from "@/lib/fare";
+import { osrmRoute } from "@/lib/osrm";
 import { preferredPhone } from "@/lib/phone";
 import { getMaxActiveOrders } from "@/lib/settings";
 import { zoneName } from "@/lib/zones";
@@ -74,14 +75,33 @@ export async function getOrderOrThrow(id: string): Promise<OrderRow> {
     include: orderInclude,
   });
   if (!order) throw new AppError("Order not found", "ORDER_NOT_FOUND", 404);
-  if (isDeliveredAwaitingConfirm(order)) {
-    return prisma.order.update({
-      where: { id: order.id },
-      data: orderCompletedData(),
-      include: orderInclude,
-    });
-  }
-  return order;
+  const current = isDeliveredAwaitingConfirm(order)
+    ? await prisma.order.update({
+        where: { id: order.id },
+        data: orderCompletedData(),
+        include: orderInclude,
+      })
+    : order;
+  return cacheOrderRoute(current);
+}
+
+async function cacheOrderRoute(order: OrderRow): Promise<OrderRow> {
+  if (order.routeGeometry) return order;
+  const routed = await osrmRoute(
+    order.pickupLat,
+    order.pickupLng,
+    order.dropoffLat,
+    order.dropoffLng,
+  );
+  if (!routed) return order;
+  return prisma.order.update({
+    where: { id: order.id },
+    data: {
+      routeGeometry: routed.geometry,
+      routeDurationSeconds: routed.durationSeconds,
+    },
+    include: orderInclude,
+  });
 }
 
 export function generateDeliveryPin(): string {
@@ -127,6 +147,8 @@ function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
     riderName: order.rider?.name ?? null,
     riderPhone: order.rider?.phone ?? null,
     riderPhotoUrl: order.rider?.photoUrl ?? null,
+    riderLat: order.riderLat,
+    riderLng: order.riderLng,
     customerName: order.customer?.name ?? null,
     customerPhone: order.customer?.phone ?? null,
     payoutNgn: order.payoutNgn,
@@ -136,11 +158,14 @@ function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
     paidAt: order.paidAt?.toISOString() ?? null,
     refundedAt: order.refundedAt?.toISOString() ?? null,
     distanceKm: order.distanceKm,
+    routeGeometry: order.routeGeometry ?? null,
+    routeDurationSeconds: order.routeDurationSeconds ?? null,
     deliveryPin:
       hideDeliveryPin || !orderNeedsDeliveryPin(order) ? null : order.deliveryPin,
     deliveryPinRevealed: Boolean(order.deliveryPinRevealedAt),
     deliveryPinRequested: Boolean(order.deliveryPinRequestedAt),
     deliveryPinRequestedAt: order.deliveryPinRequestedAt?.toISOString() ?? null,
+    deliveryPinSentAt: order.deliveryPinSentAt?.toISOString() ?? null,
     requiresDeliveryPin: orderNeedsDeliveryPin(order),
     deliveryProof: order.deliveryProof,
     deliveryProofNote: order.deliveryProofNote,
@@ -574,6 +599,8 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
         feeNgn: secondFree ? 0 : quote.feeNgn,
         payoutNgn: quote.payoutNgn,
         distanceKm: quote.distanceKm,
+        routeGeometry: quote.routeGeometry ?? undefined,
+        routeDurationSeconds: quote.routeDurationSeconds,
         paymentMethod: secondFree ? "cash" : paymentMethod,
         paymentStatus: secondFree ? "unpaid" : paymentStatus,
         paystackReference: secondFree ? null : paystackReference,

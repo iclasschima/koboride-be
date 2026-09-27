@@ -1,6 +1,7 @@
 import { config, riderPayoutNgn } from "@/lib/config";
 import { getPlatformSettings, type PlatformSettings } from "@/lib/settings";
-import { roadDistanceKm, haversineKm } from "@/lib/distance";
+import { haversineKm } from "@/lib/distance";
+import { osrmRoute } from "@/lib/osrm";
 import { AppError } from "@/lib/errors";
 import { routeZone, type PricingZone } from "@/lib/zones";
 
@@ -109,15 +110,13 @@ export async function quoteRoute(input: {
     input.dropoffLng,
   );
 
-  const [distanceKm, settings] = await Promise.all([
-    roadDistanceKm(
-      input.pickupLat,
-      input.pickupLng,
-      input.dropoffLat,
-      input.dropoffLng,
-    ),
+  const [routed, settings] = await Promise.all([
+    osrmRoute(input.pickupLat, input.pickupLng, input.dropoffLat, input.dropoffLng),
     getPlatformSettings(),
   ]);
+  const distanceKm =
+    routed?.distanceKm ??
+    haversineKm(input.pickupLat, input.pickupLng, input.dropoffLat, input.dropoffLng);
   assertWithinMaxDeliveryDistance(distanceKm);
 
   const listFeeNgn = feeFromDistanceKm(distanceKm, settings);
@@ -140,6 +139,8 @@ export async function quoteRoute(input: {
     dropoffLat: input.dropoffLat,
     dropoffLng: input.dropoffLng,
     distanceKm: roundKm(distanceKm),
+    routeGeometry: routed?.geometry ?? null,
+    routeDurationSeconds: routed?.durationSeconds ?? null,
     maxDistanceKm: config.maxDeliveryDistanceKm,
     listFeeNgn,
     onlineDiscountNgn,

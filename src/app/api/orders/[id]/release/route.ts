@@ -57,6 +57,7 @@ export const POST = api(async (req, ctx) => {
         riderPhase: null,
         deliveryPinRequestedAt: null,
         deliveryPinRevealedAt: null,
+        deliveryPinSentAt: null,
         // A rider who saw the code must not keep a working one after walking away.
         ...(orderNeedsDeliveryPin(order) && order.deliveryPinRevealedAt
           ? { deliveryPin: generateDeliveryPin() }

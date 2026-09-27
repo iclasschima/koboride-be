@@ -185,13 +185,15 @@ export async function notifyOrderDelivered(order: {
   });
 }
 
-export async function notifyDeliveryPinRequested(order: {
-  id: string;
-  customerId: string;
-}): Promise<void> {
+export async function notifyDeliveryPinRequested(
+  order: { id: string; customerId: string },
+  opts?: { smsSent?: boolean },
+): Promise<void> {
   await sendPushToUser(order.customerId, "customer", {
     title: "Delivery PIN",
-    body: "Tap Reveal code",
+    body: opts?.smsSent
+      ? "We texted the code to the receiver again"
+      : "Tap Reveal code",
     url: `/trips/${order.id}`,
   });
 }

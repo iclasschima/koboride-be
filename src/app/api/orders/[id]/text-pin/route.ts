@@ -1,18 +1,11 @@
 import { api, json, options, AppError } from "@/lib/errors";
 import { requireUser } from "@/lib/auth";
-import {
-  assertCustomerOwns,
-  getOrderOrThrow,
-  hasPickedUp,
-  orderInclude,
-  orderNeedsDeliveryPin,
-  presentTrip,
-} from "@/lib/orders";
-import { prisma } from "@/lib/prisma";
+import { textDeliveryPinToReceiver } from "@/lib/deliveryPinSms";
+import { assertCustomerOwns, getOrderOrThrow, hasPickedUp, orderNeedsDeliveryPin, presentTrip } from "@/lib/orders";
 
 export const OPTIONS = () => options();
 
-/** Share the PIN with the rider when the text to the receiver did not go out. */
+/** Sender texts the delivery PIN to the receiver. The rider never sees the code. */
 export const POST = api(async (req, ctx) => {
   const user = requireUser(req, ["customer"]);
   const id = ctx.params?.id;
@@ -29,22 +22,12 @@ export const POST = api(async (req, ctx) => {
   }
   if (!hasPickedUp(order)) {
     throw new AppError(
-      "Reveal the code when the rider is heading to drop-off",
+      "Text the code when the rider is heading to drop-off",
       "INVALID_STATUS",
       409,
     );
   }
-  if (order.deliveryPinSentAt) {
-    throw new AppError("This code was already texted to the receiver", "INVALID_STATUS", 409);
-  }
-  if (order.deliveryPinRevealedAt) {
-    return json({ trip: presentTrip(order) });
-  }
 
-  const updated = await prisma.order.update({
-    where: { id: order.id },
-    data: { deliveryPinRevealedAt: new Date() },
-    include: orderInclude,
-  });
+  const updated = await textDeliveryPinToReceiver(order, { resend: true });
   return json({ trip: presentTrip(updated) });
 });

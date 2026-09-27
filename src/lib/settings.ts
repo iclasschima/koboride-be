@@ -14,6 +14,9 @@ export const MIN_FARE_KEY = "minFareNgn";
 export const ONLINE_DISCOUNT_KEY = "onlinePaymentDiscountNgn";
 export const STILL_LOOKING_KEY = "stillLookingAfterMinutes";
 export const RESCHEDULE_DELAY_KEY = "rescheduleDelayMinutes";
+export const THEME_KEY = "theme";
+export const THEME_IDS = ["violet", "caesar"] as const;
+export type ThemeId = (typeof THEME_IDS)[number];
 
 const MAX_ACTIVE_ORDERS_CEILING = 50;
 const FARE_AMOUNT_MAX = 50_000;
@@ -33,6 +36,7 @@ export type PlatformSettings = {
   stillLookingAfterMinutes: number;
   /** Minutes to pause search when the customer takes that retry. */
   rescheduleDelayMinutes: number;
+  theme: ThemeId;
 };
 
 export type ClientAppStatus = {
@@ -40,6 +44,7 @@ export type ClientAppStatus = {
   paystackEnabled: boolean;
   zones: PricingZone[];
   maxDeliveryDistanceKm: number;
+  theme: ThemeId;
 };
 
 const CLIENT_REFRESH_HEADER = "X-Kobo-Refresh";
@@ -56,6 +61,7 @@ const SETTINGS_KEYS = [
   ONLINE_DISCOUNT_KEY,
   STILL_LOOKING_KEY,
   RESCHEDULE_DELAY_KEY,
+  THEME_KEY,
 ] as const;
 
 export function minutesToMs(minutes: number): number {
@@ -113,7 +119,12 @@ function defaultPlatformSettings(): PlatformSettings {
     onlinePaymentDiscountNgn: config.onlinePaymentDiscountNgn,
     stillLookingAfterMinutes: minutesFromMs(config.stillLookingAfterMs, 8),
     rescheduleDelayMinutes: minutesFromMs(config.rescheduleDelayMs, 30),
+    theme: "violet",
   };
+}
+
+function parseTheme(raw: string | undefined): ThemeId {
+  return raw === "caesar" ? "caesar" : "violet";
 }
 
 export function cachedPlatformSettings(): PlatformSettings {
@@ -152,6 +163,7 @@ function settingsFromMap(map: Record<string, string | undefined>): PlatformSetti
       1,
       RESCHEDULE_DELAY_MINUTES_MAX,
     ),
+    theme: parseTheme(map[THEME_KEY]),
   };
 }
 
@@ -174,6 +186,7 @@ export async function getClientAppStatus(): Promise<ClientAppStatus> {
     paystackEnabled: Boolean(config.paystackSecretKey.trim() && config.paystackPublicKey.trim()),
     zones: activeZones(),
     maxDeliveryDistanceKm: config.maxDeliveryDistanceKm,
+    theme: settings.theme,
   };
 }
 
@@ -213,6 +226,7 @@ function hasSettingsPatch(
     input.onlinePaymentDiscountNgn !== undefined ||
     input.stillLookingAfterMinutes !== undefined ||
     input.rescheduleDelayMinutes !== undefined ||
+    input.theme !== undefined ||
     input.bumpClientRefresh === true
   );
 }
@@ -240,6 +254,7 @@ export async function updatePlatformSettings(
       input.stillLookingAfterMinutes ?? current.stillLookingAfterMinutes,
     rescheduleDelayMinutes:
       input.rescheduleDelayMinutes ?? current.rescheduleDelayMinutes,
+    theme: input.theme ?? current.theme,
   };
 
   if (
@@ -297,6 +312,7 @@ export async function updatePlatformSettings(
     upsertSetting(ONLINE_DISCOUNT_KEY, String(next.onlinePaymentDiscountNgn)),
     upsertSetting(STILL_LOOKING_KEY, String(next.stillLookingAfterMinutes)),
     upsertSetting(RESCHEDULE_DELAY_KEY, String(next.rescheduleDelayMinutes)),
+    upsertSetting(THEME_KEY, next.theme),
   ]);
   invalidateSettingsCache();
   return getPlatformSettings();
@@ -312,6 +328,7 @@ export const platformSettingsPatchSchema = z
     onlinePaymentDiscountNgn: z.number().int().min(0).max(ONLINE_DISCOUNT_MAX).optional(),
     stillLookingAfterMinutes: z.number().int().min(1).max(STILL_LOOKING_MINUTES_MAX).optional(),
     rescheduleDelayMinutes: z.number().int().min(1).max(RESCHEDULE_DELAY_MINUTES_MAX).optional(),
+    theme: z.enum(THEME_IDS).optional(),
     bumpClientRefresh: z.literal(true).optional(),
   })
   .refine(hasSettingsPatch, { message: "Nothing to update" });

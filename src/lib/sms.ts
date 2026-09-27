@@ -7,6 +7,10 @@ export function otpSmsText(code: string): string {
   return `Your Koboride verification code is ${code}. This code expires in 10 minutes. Do not share with anyone.`;
 }
 
+export function deliveryPinSmsText(pin: string): string {
+  return `Your KoboRide package PIN is ${pin}. Tell the rider this code to receive it.`;
+}
+
 type TermiiBody = {
   code?: string | number;
   message?: string;
@@ -17,7 +21,7 @@ function toMsisdn(phone: string): string {
   return phone.replace(/^\+/, "");
 }
 
-export async function sendOtpSms(phone: string, code: string): Promise<void> {
+async function sendTermiiSms(phone: string, sms: string, failMessage: string): Promise<void> {
   const res = await fetch(`${config.termiiBaseUrl}/api/sms/send`, {
     method: "POST",
     cache: "no-store",
@@ -29,7 +33,7 @@ export async function sendOtpSms(phone: string, code: string): Promise<void> {
       api_key: config.termiiApiKey,
       to: toMsisdn(phone),
       from: "OE Alert",
-      sms: otpSmsText(code),
+      sms,
       type: "plain",
       channel: "dnd",
     }),
@@ -40,5 +44,17 @@ export async function sendOtpSms(phone: string, code: string): Promise<void> {
   if (sent) return;
 
   console.error(`[sms] Termii send failed for ${maskPhone(phone)}`, data.message ?? res.status);
-  throw new AppError("Could not send SMS code. Try again.", "SMS_SEND_FAILED", 502);
+  throw new AppError(failMessage, "SMS_SEND_FAILED", 502);
+}
+
+export async function sendOtpSms(phone: string, code: string): Promise<void> {
+  await sendTermiiSms(phone, otpSmsText(code), "Could not send SMS code. Try again.");
+}
+
+export async function sendDeliveryPinSms(phone: string, pin: string): Promise<void> {
+  await sendTermiiSms(
+    phone,
+    deliveryPinSmsText(pin),
+    "Could not text the delivery PIN. Try again.",
+  );
 }
