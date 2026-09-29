@@ -14,6 +14,7 @@ import {
   zoneTakeRate,
 } from "@/lib/riders";
 import { defaultZoneSlug } from "@/lib/zones";
+import { syncRiderBankFromAdmin } from "@/lib/bankVerify";
 
 export const OPTIONS = () => options();
 
@@ -35,6 +36,9 @@ async function readCreateInput(req: Request): Promise<{
   photo: File | null;
   idDocument: File | null;
   verification: ReturnType<typeof parseRiderVerification>;
+  bankCode?: string;
+  bankName?: string;
+  accountNumber?: string;
 }> {
   const ct = req.headers.get("content-type") ?? "";
   if (ct.includes("multipart/form-data")) {
@@ -58,6 +62,9 @@ async function readCreateInput(req: Request): Promise<{
       photo: photo instanceof File && photo.size > 0 ? photo : null,
       idDocument: idDocument instanceof File && idDocument.size > 0 ? idDocument : null,
       verification: parseRiderVerification(body),
+      bankCode: String(form.get("bankCode") ?? "").trim() || undefined,
+      bankName: String(form.get("bankName") ?? "").trim() || undefined,
+      accountNumber: String(form.get("accountNumber") ?? "").trim() || undefined,
     };
   }
 
@@ -144,7 +151,7 @@ function countById(
 }
 
 export const POST = api(async (req) => {
-  requireUser(req, ["admin"]);
+  const admin = requireUser(req, ["admin"]);
   const input = await readCreateInput(req);
   const phone = normalizePhone(input.phone);
   const existing = await prisma.rider.findFirst({
@@ -181,5 +188,13 @@ export const POST = api(async (req) => {
   if (!existing) {
     await notifyAdminNewUser({ name: rider.name, phone: rider.phone, kind: "rider" });
   }
+  await syncRiderBankFromAdmin({
+    riderId: rider.id,
+    adminId: admin.sub,
+    bankCode: input.bankCode,
+    bankName: input.bankName,
+    accountNumber: input.accountNumber,
+  });
+  rider = (await prisma.rider.findUnique({ where: { id: rider.id } })) ?? rider;
   return json({ rider: presentOpsRider(rider) }, 201);
 });

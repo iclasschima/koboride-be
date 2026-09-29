@@ -12,6 +12,8 @@ import {
 } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 import { askSenderToRevealPin, textDeliveryPinToReceiver } from "@/lib/deliveryPinSms";
+import { noteRiderFirstTen } from "@/lib/onboarding";
+import { writeConfirmedLedgerNow } from "@/lib/ledger";
 import { notifyAdminOrderStatus, notifyOrderDelivered } from "@/lib/push";
 
 export const OPTIONS = () => options();
@@ -127,6 +129,8 @@ export const POST = api(async (req, ctx) => {
     }
   }
   if (riderPhase === "delivered" && order.riderPhase !== "delivered") {
+    await writeConfirmedLedgerNow({ ...updated, status: "completed" });
+    await noteRiderFirstTen(updated.riderId);
     await notifyOrderDelivered(updated);
   }
   if (riderPhase !== order.riderPhase) {

@@ -27,6 +27,7 @@ export const POST = api(async (req) => {
     await readJson(req),
   );
 
+  const user = optionalUser(req);
   const [quote, settings] = await Promise.all([
     quoteRoute({
       pickup: body.pickup ?? "pickup",
@@ -35,11 +36,11 @@ export const POST = api(async (req) => {
       pickupLng: body.pickupLng,
       dropoffLat: body.dropoffLat,
       dropoffLng: body.dropoffLng,
+      customerId: user?.role === "customer" ? user.sub : undefined,
     }),
     getPlatformSettings(),
   ]);
 
-  const user = optionalUser(req);
   const secondOrderFree =
     user?.role === "customer" ? await isSecondOrderFree(user.sub) : false;
 

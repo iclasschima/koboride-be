@@ -118,8 +118,7 @@ You can also skip the laptop migrate step: the API **build** already runs `prism
 | ---- | ----- |
 | `NODE_VERSION` | `20` |
 | `DATABASE_URL` | Internal URL from the Render Postgres instance (link the database in the dashboard if you can) |
-| `JWT_SECRET` | long random string |
-| `JWT_EXPIRES_IN` | `14d` |
+| `JWT_SECRET` | long random string. Login tokens do not expire. |
 | `CORS_ORIGIN` | your frontend origin, e.g. `https://koboride-fe.onrender.com` |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | admin login |
 | `GOOGLE_PLACES_API_KEY` | Places API (New) |
@@ -170,8 +169,7 @@ DATABASE_URL="postgresql://..." ADMIN_EMAIL="you@koboride.ng" ADMIN_PASSWORD="a-
 | Name | Example |
 | ---- | ------- |
 | `DATABASE_URL` | Neon URL |
-| `JWT_SECRET` | long random string |
-| `JWT_EXPIRES_IN` | `14d` |
+| `JWT_SECRET` | long random string. Login tokens do not expire. |
 | `CORS_ORIGIN` | `https://your-frontend.vercel.app` |
 | `ADMIN_EMAIL` | admin login |
 | `ADMIN_PASSWORD` | admin login |

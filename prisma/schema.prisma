@@ -50,6 +50,13 @@ enum RiderIdType {
   passport
 }
 
+enum OnboardingStatus {
+  SUBMITTED
+  ID_VERIFIED
+  APPROVED
+  REJECTED
+}
+
 model Customer {
   id        String   @id @default(cuid())
   phone     String   @unique
@@ -75,11 +82,39 @@ model Rider {
   availability RiderAvailability @default(OFFLINE)
   /** Dedicated dispatch pool. One zone per rider — never cross-dispatch. */
   zoneSlug     String            @default("YAB")
+  onboardedByAgentId String?
+  onboardedByAgent   Agent?            @relation(fields: [onboardedByAgentId], references: [id])
+  onboardingStatus   OnboardingStatus  @default(SUBMITTED)
+  submittedAt        DateTime?
+  approvedAt         DateTime?
+  rejectionReason    String?
+  /** Set once, when completed deliveries first reach 10. Never overwritten. */
+  firstTenReachedAt  DateTime?
+  idVerified         Boolean           @default(false)
+  bankName           String?
+  /** Paystack bank code from the bank list. Required before a transfer recipient can be created. */
+  bankCode           String?
+  /** AES-GCM ciphertext. Lookup uses idNumberLookup, never this column. */
+  bankAccountNo      String?
+  /** Name returned by Paystack resolve. Not the name the agent typed. */
+  bankAccountName    String?
+  bankVerifiedAt     DateTime?
+  paystackRecipientCode String?
+  bankNeedsReview    Boolean           @default(false)
+  idNumberLookup     String?           @unique
+  photoWithBikeUrl   String?
+  selfieUrl          String?
+  depositPaid        Boolean           @default(false)
   createdAt    DateTime          @default(now())
   orders       Order[]
   releases     OrderRelease[]
+  onboardingEvents OnboardingEvent[]
+  ledgerEntries LedgerEntry[]
+  payouts      Payout[]
 
   @@index([zoneSlug])
+  @@index([onboardedByAgentId])
+  @@index([onboardingStatus, submittedAt])
 }
 
 model Admin {
@@ -89,10 +124,157 @@ model Admin {
   createdAt    DateTime @default(now())
 }
 
+/** Field agent. Provisioned by admin; never self-registered. */
+model Agent {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  riders    Rider[]
+  payouts   AgentPayout[]
+}
+
+/** One row. Amounts are kobo. Admin edits these; earnings code only reads them. */
+model AgentPayConfig {
+  id                 String @id @default("default")
+  activationPay      Int    @default(250000)
+  volumeBonusPer10   Int    @default(500000)
+  retentionBonus     Int    @default(1000000)
+  retentionThreshold Float  @default(0.7)
+  activityWindowDays Int    @default(14)
+  baseStipend        Int    @default(3000000)
+  transportAllowance Int    @default(1000000)
+  updatedAt          DateTime @updatedAt
+}
+
+/** Manual payroll record. One payout per agent per month. */
+model AgentPayout {
+  id        String   @id @default(cuid())
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id])
+  month     String
+  amount    Int
+  reference String
+  createdAt DateTime @default(now())
+
+  @@unique([agentId, month])
+  @@index([agentId])
+}
+
+model OnboardingEvent {
+  id        String   @id @default(cuid())
+  riderId   String
+  rider     Rider    @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  actorId   String
+  actorRole String
+  action    String
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([riderId, createdAt])
+}
+
+/** Append-only rider balance. Credits are positive kobo, debits are negative. */
+model LedgerEntry {
+  id             String   @id @default(cuid())
+  riderId        String
+  rider          Rider    @relation(fields: [riderId], references: [id])
+  orderId        String?
+  order          Order?   @relation(fields: [orderId], references: [id])
+  type           String
+  amount         Int
+  idempotencyKey String   @unique
+  payoutId       String?
+  payout         Payout?  @relation(fields: [payoutId], references: [id])
+  note           String?
+  createdBy      String
+  createdAt      DateTime @default(now())
+
+  @@index([riderId, createdAt])
+  @@index([payoutId])
+}
+
+model PayoutRun {
+  id         String    @id @default(cuid())
+  runDate    String    @unique
+  status     String
+  cutoffAt   DateTime
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  summary    Json?
+  payouts    Payout[]
+}
+
+model Payout {
+  id                   String        @id @default(cuid())
+  runId                String
+  run                  PayoutRun     @relation(fields: [runId], references: [id])
+  riderId              String
+  rider                Rider         @relation(fields: [riderId], references: [id])
+  grossEarnings        Int
+  recovered            Int
+  amount               Int
+  reference            String        @unique
+  status               String
+  paystackTransferCode String?
+  failureReason        String?
+  attempts             Int           @default(0)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  entries              LedgerEntry[]
+
+  @@index([runId])
+  @@index([riderId, status])
+}
+
+/** One row. Amounts are kobo. Admin edits these. */
+model PayoutConfig {
+  id                 String @id @default("default")
+  cutoffHourLagos    Int    @default(21)
+  runHourLagos       Int    @default(22)
+  minPayout          Int    @default(50000)
+  recoveryCapRatio   Float  @default(0.5)
+  maxAttempts        Int    @default(3)
+  cashDebtBlockLimit Int    @default(200000)
+  /** platform | rider. Default: KoboRide bears a refund after confirmation. */
+  refundCostBearer   String @default("platform")
+  updatedAt          DateTime @updatedAt
+}
+
+model ReconciliationRun {
+  id        String   @id @default(cuid())
+  runDate   String
+  status    String
+  details   Json
+  createdAt DateTime @default(now())
+
+  @@index([runDate])
+}
+
 model AppSetting {
   key       String   @id
   value     String
   updatedAt DateTime @updatedAt
+}
+
+/** A business pin with a fixed fare for pickup, drop-off, or both. Customers see the name and price, not the address. */
+model LocationOffer {
+  id                   String   @id @default(cuid())
+  name                 String
+  address              String
+  lat                  Float
+  lng                  Float
+  feeNgn               Int
+  pickup               Boolean  @default(false)
+  dropoff              Boolean  @default(false)
+  /** How many non-cancelled orders each customer can book at this price. Null means no limit. */
+  maxUsesPerCustomer   Int?
+  active               Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  pickupOrders         Order[]  @relation("PickupOffer")
+  dropoffOrders        Order[]  @relation("DropoffOffer")
 }
 
 /** Neighborhood bicycle coverage. Dispatch never crosses zones; adjacent hops are allowed. */
@@ -153,6 +335,10 @@ model Order {
   dropoff     String
   dropoffLat  Float
   dropoffLng  Float
+  pickupOfferId  String?
+  pickupOffer    LocationOffer? @relation("PickupOffer", fields: [pickupOfferId], references: [id], onDelete: SetNull)
+  dropoffOfferId String?
+  dropoffOffer   LocationOffer? @relation("DropoffOffer", fields: [dropoffOfferId], references: [id], onDelete: SetNull)
   /** Dispatch pool for this order (pickup zone, or pickup zone on an adjacent hop). */
   zoneSlug    String      @default("YAB")
   notes       String?
@@ -208,6 +394,7 @@ model Order {
 
   releases    OrderRelease[]
   events      OrderEvent[]
+  ledgerEntries LedgerEntry[]
 
   @@index([status, scheduledFor])
   @@index([zoneSlug, status, scheduledFor])

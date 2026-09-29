@@ -1,0 +1,1 @@
+ALTER TABLE "AgentPayConfig" ADD COLUMN "stipendMinApproved" INTEGER NOT NULL DEFAULT 4;

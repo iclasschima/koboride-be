@@ -2,6 +2,7 @@ import { api, json, options, AppError } from "@/lib/errors";
 import { config } from "@/lib/config";
 import { runOrderMaintenance } from "@/lib/dispatch";
 import { autoConfirmStaleDeliveries } from "@/lib/orders";
+import { maybeRunScheduledPayout } from "@/lib/payoutRun";
 
 export const OPTIONS = () => options();
 
@@ -23,6 +24,7 @@ function assertCron(req: Request) {
 export const POST = api(async (req) => {
   assertCron(req);
   await autoConfirmStaleDeliveries();
+  await maybeRunScheduledPayout();
   const result = await runOrderMaintenance();
   return json({ ok: true, ...result });
 });
@@ -30,6 +32,7 @@ export const POST = api(async (req) => {
 export const GET = api(async (req) => {
   assertCron(req);
   await autoConfirmStaleDeliveries();
+  await maybeRunScheduledPayout();
   const result = await runOrderMaintenance();
   return json({ ok: true, ...result });
 });

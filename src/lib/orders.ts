@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { config } from "@/lib/config";
 import { quoteRoute } from "@/lib/fare";
+import { assertOfferUsesAvailable } from "@/lib/locationOffers";
 import { osrmRoute } from "@/lib/osrm";
 import { preferredPhone } from "@/lib/phone";
 import { getMaxActiveOrders } from "@/lib/settings";
@@ -19,6 +20,9 @@ import {
   SYSTEM_CANCEL_REASONS,
   writeOrderEvent,
 } from "@/lib/dispatch";
+import { noteRiderFirstTen } from "@/lib/onboarding";
+import { writeConfirmedLedgerNow } from "@/lib/ledger";
+import { onlinePaymentsEnabled } from "@/lib/payoutFlags";
 
 export const orderInclude = {
   rider: { select: { id: true, name: true, phone: true, photoUrl: true } },
@@ -60,6 +64,13 @@ export function orderDurationSeconds(order: {
 
 /** Close leftover jobs that were marked delivered before PIN completed the order. */
 export async function autoConfirmStaleDeliveries(): Promise<void> {
+  const stale = await prisma.order.findMany({
+    where: {
+      status: "in_progress",
+      riderPhase: "delivered",
+    },
+    select: { id: true, riderId: true },
+  });
   await prisma.order.updateMany({
     where: {
       status: "in_progress",
@@ -67,6 +78,15 @@ export async function autoConfirmStaleDeliveries(): Promise<void> {
     },
     data: orderCompletedData(),
   });
+  const riderIds = Array.from(
+    new Set(stale.map((order) => order.riderId).filter((id): id is string => Boolean(id))),
+  );
+  const confirmed = await prisma.order.findMany({
+    where: { id: { in: stale.map((order) => order.id) } },
+    select: { id: true, riderId: true, paymentMethod: true, feeNgn: true, payoutNgn: true, status: true },
+  });
+  await Promise.all(confirmed.map((order) => writeConfirmedLedgerNow(order)));
+  await Promise.all(riderIds.map((riderId) => noteRiderFirstTen(riderId)));
 }
 
 export async function getOrderOrThrow(id: string): Promise<OrderRow> {
@@ -75,13 +95,18 @@ export async function getOrderOrThrow(id: string): Promise<OrderRow> {
     include: orderInclude,
   });
   if (!order) throw new AppError("Order not found", "ORDER_NOT_FOUND", 404);
-  const current = isDeliveredAwaitingConfirm(order)
+  const completing = isDeliveredAwaitingConfirm(order);
+  const current = completing
     ? await prisma.order.update({
         where: { id: order.id },
         data: orderCompletedData(),
         include: orderInclude,
       })
     : order;
+  if (completing) {
+    await writeConfirmedLedgerNow(current);
+    await noteRiderFirstTen(current.riderId);
+  }
   return cacheOrderRoute(current);
 }
 
@@ -383,6 +408,11 @@ export async function assertCustomerCanBook(customerId: string): Promise<void> {
 }
 
 export async function refundIfPaidOnline(order: {
+  id?: string;
+  riderId?: string | null;
+  status?: string;
+  feeNgn?: number;
+  payoutNgn?: number;
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;
   paystackReference: string | null;
@@ -504,6 +534,9 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
   }
 
   const paymentMethod: PaymentMethod = input.paymentMethod === "paystack" ? "paystack" : "cash";
+  if (paymentMethod === "paystack" && !(await onlinePaymentsEnabled())) {
+    throw new AppError("Online payment is not available right now", "ONLINE_PAYMENTS_DISABLED", 403);
+  }
   const customerRole: CustomerRole =
     input.customerRole === "receiver" ? "receiver" : "sender";
   const farePayer: CustomerRole =
@@ -578,6 +611,9 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
       );
     }
     const secondFree = completed === 1 && active === 0;
+    const pickupOfferId = secondFree ? null : quote.pickupOfferId;
+    const dropoffOfferId = secondFree ? null : quote.dropoffOfferId;
+    await assertOfferUsesAvailable(input.customerId, [pickupOfferId, dropoffOfferId], tx);
 
     return tx.order.create({
       data: {
@@ -595,6 +631,8 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
         pickupLng: quote.pickupLng,
         dropoffLat: quote.dropoffLat,
         dropoffLng: quote.dropoffLng,
+        pickupOfferId,
+        dropoffOfferId,
         zoneSlug: quote.zoneSlug,
         feeNgn: secondFree ? 0 : quote.feeNgn,
         payoutNgn: quote.payoutNgn,

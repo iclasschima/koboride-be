@@ -3,7 +3,7 @@ import { api, json, options, AppError } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
 import { normalizePhone } from "@/lib/phone";
 import { verifyOtp } from "@/lib/otp";
-import { signInCustomer } from "@/lib/auth";
+import { signInAgent, signInCustomer } from "@/lib/auth";
 
 export const OPTIONS = () => options();
 
@@ -13,6 +13,7 @@ export const POST = api(async (req) => {
       phone: z.string().min(1),
       code: z.string().min(1),
       name: z.string().min(1).max(80).optional(),
+      role: z.enum(["customer", "agent"]).optional(),
     }),
     await readJson(req),
   );
@@ -21,5 +22,6 @@ export const POST = api(async (req) => {
     throw new AppError("Enter the 4-digit code we sent", "VALIDATION_ERROR", 400);
   }
   await verifyOtp(phone, body.code);
+  if (body.role === "agent") return json(await signInAgent(phone));
   return json(await signInCustomer(phone, body.name));
 });

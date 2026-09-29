@@ -1,6 +1,12 @@
 import { config, riderPayoutNgn } from "@/lib/config";
 import { getPlatformSettings, type PlatformSettings } from "@/lib/settings";
 import { haversineKm } from "@/lib/distance";
+import {
+  applyFixedOffers,
+  listLocationOffers,
+  offerUsesByCustomer,
+  offersCustomerCanUse,
+} from "@/lib/locationOffers";
 import { osrmRoute } from "@/lib/osrm";
 import { AppError } from "@/lib/errors";
 import { routeZone, type PricingZone } from "@/lib/zones";
@@ -82,6 +88,11 @@ export function feeFromDistanceKm(distanceKm: number, rates: FareRates): number 
   return roundToDisplayPrice(Math.max(rates.minFareNgn, exact));
 }
 
+/** Rider pay uses the distance fare when a location price is lower. */
+export function riderFareBasisNgn(distanceFeeNgn: number, listFeeNgn: number): number {
+  return Math.max(0, distanceFeeNgn, listFeeNgn);
+}
+
 /** What the customer pays. Online discount comes out of platform margin only. */
 export function customerFeeNgn(
   listFeeNgn: number,
@@ -101,6 +112,7 @@ export async function quoteRoute(input: {
   dropoffLat: number;
   dropoffLng: number;
   paymentMethod?: PaymentMethod;
+  customerId?: string;
 }) {
   assertDistinctStops(input);
   const zone = assertRoutable(
@@ -119,7 +131,25 @@ export async function quoteRoute(input: {
     haversineKm(input.pickupLat, input.pickupLng, input.dropoffLat, input.dropoffLng);
   assertWithinMaxDeliveryDistance(distanceKm);
 
-  const listFeeNgn = feeFromDistanceKm(distanceKm, settings);
+  const distanceFeeNgn = feeFromDistanceKm(distanceKm, settings);
+  const offers = await listLocationOffers(true);
+  const used = input.customerId
+    ? await offerUsesByCustomer(
+        input.customerId,
+        offers.map((offer) => offer.id),
+      )
+    : new Map<string, number>();
+  const fixed = applyFixedOffers({
+    listFeeNgn: distanceFeeNgn,
+    pickup: input.pickup.trim(),
+    dropoff: input.dropoff.trim(),
+    pickupLat: input.pickupLat,
+    pickupLng: input.pickupLng,
+    dropoffLat: input.dropoffLat,
+    dropoffLng: input.dropoffLng,
+    offers: offersCustomerCanUse(offers, used),
+  });
+  const listFeeNgn = fixed.listFeeNgn;
   const paymentMethod: PaymentMethod =
     input.paymentMethod === "paystack" ? "paystack" : "cash";
   const feeNgn = customerFeeNgn(
@@ -128,12 +158,16 @@ export async function quoteRoute(input: {
     settings.onlinePaymentDiscountNgn,
   );
   const onlineDiscountNgn = listFeeNgn - feeNgn;
-  // Rider payout is always from the full list fare — never reduced by online discount.
-  const payoutNgn = riderPayoutNgn(listFeeNgn, settings.platformCutPercent);
+  // A location price below the distance fare is a discount. The rider is still
+  // paid from the distance fare, so that discount comes out of platform margin.
+  const payoutNgn = riderPayoutNgn(
+    riderFareBasisNgn(distanceFeeNgn, listFeeNgn),
+    settings.platformCutPercent,
+  );
 
   return {
-    pickup: input.pickup.trim(),
-    dropoff: input.dropoff.trim(),
+    pickup: fixed.pickup,
+    dropoff: fixed.dropoff,
     pickupLat: input.pickupLat,
     pickupLng: input.pickupLng,
     dropoffLat: input.dropoffLat,
@@ -147,5 +181,7 @@ export async function quoteRoute(input: {
     feeNgn,
     payoutNgn,
     zoneSlug: zone.slug,
+    pickupOfferId: fixed.pickupOfferId,
+    dropoffOfferId: fixed.dropoffOfferId,
   };
 }

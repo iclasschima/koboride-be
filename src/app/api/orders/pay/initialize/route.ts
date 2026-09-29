@@ -10,6 +10,7 @@ import {
   resolveCustomerContacts,
 } from "@/lib/orders";
 import { getMaxActiveOrders } from "@/lib/settings";
+import { onlinePaymentsEnabled } from "@/lib/payoutFlags";
 import {
   initializePaystack,
   nairaToKobo,
@@ -23,8 +24,8 @@ export const OPTIONS = () => options();
 
 export const POST = api(async (req) => {
   const user = requireUser(req, ["customer"]);
-  if (!paystackConfigured()) {
-    throw new AppError("Card payment is not available right now", "PAYSTACK_NOT_CONFIGURED", 503);
+  if (!paystackConfigured() || !(await onlinePaymentsEnabled())) {
+    throw new AppError("Card payment is not available right now", "ONLINE_PAYMENTS_DISABLED", 503);
   }
 
   const body = parseBody(customerBookingSchema, await readJson(req));
@@ -51,7 +52,7 @@ export const POST = api(async (req) => {
   }
 
   const [quote, maxActiveOrders, active] = await Promise.all([
-    quoteRoute({ ...body, paymentMethod: "paystack" }),
+    quoteRoute({ ...body, paymentMethod: "paystack", customerId: customer.id }),
     getMaxActiveOrders(),
     countActiveOrders(customer.id),
   ]);

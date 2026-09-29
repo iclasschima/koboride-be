@@ -16,7 +16,6 @@ function floatEnv(name: string, fallback: number): number {
 
 export const config = {
   jwtSecret: process.env.JWT_SECRET ?? "dev-only-insecure-secret",
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "14d",
 
   baseFeeNgn: intEnv("BASE_FEE_NGN", 400),
   perKmFeeNgn: intEnv("PER_KM_FEE_NGN", 250),

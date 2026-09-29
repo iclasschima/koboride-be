@@ -1,4 +1,4 @@
-import jwt, { type SignOptions } from "jsonwebtoken";
+import jwt from "jsonwebtoken";
 import { config } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import { findOrCreateCustomer } from "@/lib/customers";
@@ -6,7 +6,7 @@ import { phoneLookupKeys, preferredPhone } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 import type { Rider } from "@prisma/client";
 
-export const ROLES = ["customer", "rider", "admin"] as const;
+export const ROLES = ["customer", "rider", "admin", "agent"] as const;
 export type Role = (typeof ROLES)[number];
 
 export type AuthUser = {
@@ -15,13 +15,12 @@ export type AuthUser = {
 };
 
 export function signToken(user: AuthUser): string {
-  const options: SignOptions = { expiresIn: config.jwtExpiresIn as SignOptions["expiresIn"] };
-  return jwt.sign(user, config.jwtSecret, options);
+  return jwt.sign(user, config.jwtSecret);
 }
 
 export function verifyToken(token: string): AuthUser {
   try {
-    const payload = jwt.verify(token, config.jwtSecret) as AuthUser;
+    const payload = jwt.verify(token, config.jwtSecret, { ignoreExpiration: true }) as AuthUser;
     if (!payload.sub || !ROLES.includes(payload.role)) throw new Error("bad payload");
     return { sub: payload.sub, role: payload.role };
   } catch {
@@ -51,10 +50,16 @@ export function requireUser(req: Request, roles?: Role[]): AuthUser {
   return user;
 }
 
-export async function requireRider(req: Request): Promise<{ user: AuthUser; rider: Rider }> {
+export async function loadRider(req: Request): Promise<{ user: AuthUser; rider: Rider }> {
   const user = requireUser(req, ["rider"]);
   const rider = await prisma.rider.findUnique({ where: { id: user.sub } });
   if (!rider) throw new AppError("Account not found", "NOT_FOUND", 404);
+  return { user, rider };
+}
+
+export async function requireRider(req: Request): Promise<{ user: AuthUser; rider: Rider }> {
+  const loaded = await loadRider(req);
+  const { rider } = loaded;
   if (!rider.approved) {
     throw new AppError(
       "This rider account is inactive. Contact the KoboRide team.",
@@ -62,7 +67,7 @@ export async function requireRider(req: Request): Promise<{ user: AuthUser; ride
       403,
     );
   }
-  return { user, rider };
+  return loaded;
 }
 
 export async function findApprovedRiderByPhone(phone: string) {
@@ -122,13 +127,6 @@ export async function signInRider(phoneInput: string) {
       401,
     );
   }
-  if (!rider.approved) {
-    throw new AppError(
-      "This rider account is inactive. Contact the KoboRide team.",
-      "ACCOUNT_INACTIVE",
-      403,
-    );
-  }
 
   const token = signToken({ sub: rider.id, role: "rider" });
   return {
@@ -141,6 +139,37 @@ export async function signInRider(phoneInput: string) {
       online: rider.availability === "ONLINE",
     },
   };
+}
+
+export async function signInAgent(phoneInput: string) {
+  const keys = phoneLookupKeys(phoneInput);
+  const agent = await prisma.agent.findFirst({ where: { phone: { in: keys } } });
+  if (!agent || !agent.active) {
+    throw new AppError(
+      "This number is not registered as an agent. Contact KoboRide.",
+      "AGENT_NOT_REGISTERED",
+      403,
+    );
+  }
+  const token = signToken({ sub: agent.id, role: "agent" });
+  return {
+    token,
+    role: "agent" as const,
+    user: { id: agent.id, phone: agent.phone, name: agent.name },
+  };
+}
+
+export async function requireAgent(req: Request) {
+  const user = requireUser(req, ["agent"]);
+  const agent = await prisma.agent.findUnique({ where: { id: user.sub } });
+  if (!agent || !agent.active) {
+    throw new AppError(
+      "This number is not registered as an agent. Contact KoboRide.",
+      "AGENT_NOT_REGISTERED",
+      403,
+    );
+  }
+  return { user, agent };
 }
 
 export function presentRiderUser(rider: {

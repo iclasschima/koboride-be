@@ -14,6 +14,7 @@ import {
   zoneTakeRate,
 } from "@/lib/riders";
 import { defaultZoneSlug } from "@/lib/zones";
+import { syncRiderBankFromAdmin } from "@/lib/bankVerify";
 
 export const OPTIONS = () => options();
 
@@ -31,6 +32,9 @@ async function readPatchInput(req: Request): Promise<{
   idDocument: File | null;
   active?: boolean;
   verification: ReturnType<typeof parseRiderVerification>;
+  bankCode?: string;
+  bankName?: string;
+  accountNumber?: string;
 }> {
   const ct = req.headers.get("content-type") ?? "";
   if (ct.includes("multipart/form-data")) {
@@ -55,6 +59,9 @@ async function readPatchInput(req: Request): Promise<{
       idDocument: idDocument instanceof File && idDocument.size > 0 ? idDocument : null,
       active: parseOptionalBool(form.get("active") ?? form.get("approved")),
       verification: parseRiderVerification(verificationFields),
+      bankCode: String(form.get("bankCode") ?? "").trim() || undefined,
+      bankName: String(form.get("bankName") ?? "").trim() || undefined,
+      accountNumber: String(form.get("accountNumber") ?? "").trim() || undefined,
     };
   }
 
@@ -144,7 +151,7 @@ export const GET = api(async (req, ctx) => {
 });
 
 export const PATCH = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  const admin = requireUser(req, ["admin"]);
   const id = ctx.params?.id;
   if (!id) throw new AppError("Missing rider id", "VALIDATION_ERROR", 400);
 
@@ -218,6 +225,15 @@ export const PATCH = api(async (req, ctx) => {
       data: { idDocumentUrl },
     });
   }
+
+  await syncRiderBankFromAdmin({
+    riderId: updated.id,
+    adminId: admin.sub,
+    bankCode: input.bankCode,
+    bankName: input.bankName,
+    accountNumber: input.accountNumber,
+  });
+  updated = (await prisma.rider.findUnique({ where: { id: updated.id } })) ?? updated;
 
   return json({ rider: presentOpsRider(updated) });
 });

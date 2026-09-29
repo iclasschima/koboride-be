@@ -1,5 +1,6 @@
 import type { RiderIdType } from "@prisma/client";
 import { AppError } from "@/lib/errors";
+import { decryptField } from "@/lib/fieldCrypto";
 import { normalizePhone } from "@/lib/phone";
 import { defaultZoneSlug, isKnownZoneSlug, zoneName } from "@/lib/zones";
 
@@ -85,6 +86,33 @@ export function parseZoneSlug(raw: unknown, fallback = defaultZoneSlug()): strin
   return slug;
 }
 
+function readableSecret(stored: string | null | undefined): string | null {
+  try {
+    return decryptField(stored);
+  } catch {
+    return null;
+  }
+}
+
+export function presentRiderBank(rider: {
+  bankName?: string | null;
+  bankCode?: string | null;
+  bankAccountNo?: string | null;
+  bankAccountName?: string | null;
+  bankVerifiedAt?: Date | null;
+  bankNeedsReview?: boolean | null;
+}) {
+  const bankAccountNo = readableSecret(rider.bankAccountNo);
+  return {
+    bankName: rider.bankName ?? null,
+    bankCode: rider.bankCode ?? null,
+    bankAccountNo,
+    bankAccountName: rider.bankAccountName ?? null,
+    bankVerifiedAt: rider.bankVerifiedAt?.toISOString() ?? null,
+    bankNeedsReview: Boolean(rider.bankNeedsReview),
+  };
+}
+
 export function presentOpsRider(rider: {
   id: string;
   name: string;
@@ -99,6 +127,12 @@ export function presentOpsRider(rider: {
   nextOfKinName?: string | null;
   nextOfKinPhone?: string | null;
   nextOfKinRelationship?: string | null;
+  bankName?: string | null;
+  bankCode?: string | null;
+  bankAccountNo?: string | null;
+  bankAccountName?: string | null;
+  bankVerifiedAt?: Date | null;
+  bankNeedsReview?: boolean | null;
 }) {
   const zoneSlug = rider.zoneSlug || defaultZoneSlug();
   return {
@@ -113,12 +147,13 @@ export function presentOpsRider(rider: {
     zoneSlug,
     zoneName: zoneName(zoneSlug),
     idType: rider.idType ?? null,
-    idNumber: rider.idNumber ?? null,
+    idNumber: readableSecret(rider.idNumber),
     idDocumentUrl: rider.idDocumentUrl ?? null,
     nextOfKinName: rider.nextOfKinName ?? null,
     nextOfKinPhone: rider.nextOfKinPhone ?? null,
     nextOfKinRelationship: rider.nextOfKinRelationship ?? null,
     docsComplete: riderDocsComplete(rider),
+    ...presentRiderBank(rider),
   };
 }
 

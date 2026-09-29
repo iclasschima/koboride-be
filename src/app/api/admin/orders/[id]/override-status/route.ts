@@ -3,6 +3,8 @@ import type { OrderStatus, RiderPhase } from "@prisma/client";
 import { api, json, options, AppError } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
+import { noteRiderFirstTen } from "@/lib/onboarding";
+import { writeConfirmedLedgerNow } from "@/lib/ledger";
 import { getOrderOrThrow, orderCompletedData, orderInclude, presentTrip, refundIfPaidOnline } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 import {
@@ -71,6 +73,10 @@ export const POST = api(async (req, ctx) => {
     data,
     include: orderInclude,
   });
+  if (updated.status === "completed" && order.status !== "completed") {
+    await writeConfirmedLedgerNow(updated);
+    await noteRiderFirstTen(updated.riderId);
+  }
 
   if (order.status !== "dispatching" && updated.status === "dispatching") {
     await notifySearchingRider(updated);

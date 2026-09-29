@@ -8,6 +8,8 @@ import {
   presentTrip,
 } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
+import { noteRiderFirstTen } from "@/lib/onboarding";
+import { writeConfirmedLedger } from "@/lib/ledger";
 import { notifyAdminOrderStatus } from "@/lib/push";
 
 export const OPTIONS = () => options();
@@ -24,11 +26,16 @@ export const POST = api(async (req, ctx) => {
     throw new AppError("Wait until the rider marks this delivered", "INVALID_STATUS", 409);
   }
 
-  const updated = await prisma.order.update({
-    where: { id: order.id },
-    data: orderCompletedData(),
-    include: orderInclude,
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.order.update({
+      where: { id: order.id },
+      data: orderCompletedData(),
+      include: orderInclude,
+    });
+    await writeConfirmedLedger(tx, row);
+    return row;
   });
   await notifyAdminOrderStatus(updated);
+  await noteRiderFirstTen(updated.riderId);
   return json({ trip: presentTrip(updated) });
 });

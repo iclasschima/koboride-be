@@ -22,6 +22,22 @@ export const GET = api(async (req) => {
     });
   }
 
+  if (user.role === "agent") {
+    const agent = await prisma.agent.findUnique({ where: { id: user.sub } });
+    if (!agent || !agent.active) {
+      throw new AppError(
+        "This number is not registered as an agent. Contact KoboRide.",
+        "AGENT_NOT_REGISTERED",
+        403,
+      );
+    }
+    return json({
+      role: "agent" as const,
+      user: { id: agent.id, phone: agent.phone, name: agent.name },
+      rider: null,
+    });
+  }
+
   if (user.role === "rider") {
     const rider = await prisma.rider.findUnique({ where: { id: user.sub } });
     if (!rider) throw new AppError("Account not found", "NOT_FOUND", 404);

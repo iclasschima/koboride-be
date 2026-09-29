@@ -8,7 +8,7 @@ export function otpSmsText(code: string): string {
 }
 
 export function deliveryPinSmsText(pin: string): string {
-  return `Your KoboRide package PIN is ${pin}. Tell the rider this code to receive it.`;
+  return `Dear Customer, your KoboRide package PIN is ${pin}. Please share this code with the rider to receive your package. Powered by KoboRide.`;
 }
 
 type TermiiBody = {

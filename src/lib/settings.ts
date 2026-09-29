@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { config } from "@/lib/config";
 import { activeZones, getPricingZones, type PricingZone } from "@/lib/zones";
+import { onlinePaymentsEnabled } from "@/lib/payoutFlags";
 
 export const MAX_ACTIVE_ORDERS_KEY = "maxActiveOrders";
 export const PLATFORM_CUT_KEY = "platformCutPercent";
@@ -45,6 +46,9 @@ export type ClientAppStatus = {
   zones: PricingZone[];
   maxDeliveryDistanceKm: number;
   theme: ThemeId;
+  baseFeeNgn: number;
+  perKmFeeNgn: number;
+  minFareNgn: number;
 };
 
 const CLIENT_REFRESH_HEADER = "X-Kobo-Refresh";
@@ -180,13 +184,20 @@ export async function getPlatformSettings(): Promise<PlatformSettings> {
 }
 
 export async function getClientAppStatus(): Promise<ClientAppStatus> {
-  const [settings] = await Promise.all([getPlatformSettings(), getPricingZones()]);
+  const [settings, paymentsOn] = await Promise.all([
+    getPlatformSettings(),
+    getPricingZones(),
+    onlinePaymentsEnabled(),
+  ]).then(([settings, , paymentsOn]) => [settings, paymentsOn] as const);
   return {
     nonce: settings.clientRefreshNonce,
-    paystackEnabled: Boolean(config.paystackSecretKey.trim() && config.paystackPublicKey.trim()),
+    paystackEnabled: Boolean(config.paystackSecretKey.trim() && config.paystackPublicKey.trim()) && paymentsOn,
     zones: activeZones(),
     maxDeliveryDistanceKm: config.maxDeliveryDistanceKm,
     theme: settings.theme,
+    baseFeeNgn: settings.baseFeeNgn,
+    perKmFeeNgn: settings.perKmFeeNgn,
+    minFareNgn: settings.minFareNgn,
   };
 }
 
