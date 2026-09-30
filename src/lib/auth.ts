@@ -77,17 +77,28 @@ export async function findApprovedRiderByPhone(phone: string) {
   });
 }
 
+export async function findMerchantByPhone(phone: string) {
+  const keys = phoneLookupKeys(phone);
+  return prisma.merchant.findFirst({
+    where: { phone: { in: keys } },
+  });
+}
+
 export async function presentCustomer(customer: {
   id: string;
   phone: string;
   name: string | null;
 }) {
-  const rider = await findApprovedRiderByPhone(customer.phone);
+  const [rider, merchant] = await Promise.all([
+    findApprovedRiderByPhone(customer.phone),
+    findMerchantByPhone(customer.phone),
+  ]);
   return {
     id: customer.id,
     phone: customer.phone,
     name: customer.name,
     isRider: Boolean(rider),
+    isMerchant: Boolean(merchant?.active),
   };
 }
 
@@ -167,10 +178,38 @@ export async function signInAgent(phoneInput: string) {
   };
 }
 
-export async function signInMerchant(phoneInput: string) {
-  const keys = phoneLookupKeys(phoneInput);
+function presentMerchantSession(merchant: { id: string; phone: string; name: string }) {
+  const token = signToken({ sub: merchant.id, role: "merchant" });
+  return {
+    token,
+    role: "merchant" as const,
+    user: { id: merchant.id, phone: merchant.phone, name: merchant.name },
+  };
+}
+
+/** Sign in a shop that already exists. Does not open a new shop. */
+export async function signInExistingMerchant(phoneInput: string) {
   const phone = preferredPhone(phoneInput);
-  let merchant = await prisma.merchant.findFirst({ where: { phone: { in: keys } } });
+  let merchant = await findMerchantByPhone(phoneInput);
+  if (merchant && merchant.phone !== phone) {
+    merchant = await prisma.merchant.update({ where: { id: merchant.id }, data: { phone } });
+  }
+  if (!merchant) {
+    throw new AppError("No shop for this number.", "MERCHANT_NOT_FOUND", 401);
+  }
+  if (!merchant.active) {
+    throw new AppError(
+      "This shop is inactive. Contact the KoboRide team.",
+      "ACCOUNT_INACTIVE",
+      403,
+    );
+  }
+  return presentMerchantSession(merchant);
+}
+
+export async function signInMerchant(phoneInput: string) {
+  const phone = preferredPhone(phoneInput);
+  let merchant = await findMerchantByPhone(phoneInput);
   if (merchant && merchant.phone !== phone) {
     merchant = await prisma.merchant.update({ where: { id: merchant.id }, data: { phone } });
   }
@@ -191,12 +230,7 @@ export async function signInMerchant(phoneInput: string) {
       403,
     );
   }
-  const token = signToken({ sub: merchant.id, role: "merchant" });
-  return {
-    token,
-    role: "merchant" as const,
-    user: { id: merchant.id, phone: merchant.phone, name: merchant.name },
-  };
+  return presentMerchantSession(merchant);
 }
 
 export async function requireMerchant(req: Request) {

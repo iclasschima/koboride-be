@@ -25,8 +25,9 @@ Shared staging is the **`develop`** branch on both repos. Production is **`main`
 | GET | `/api/health` | uptime |
 | GET | `/api/app` | `{ nonce }` — current app reload token; also sent as `X-Kobo-Refresh` on API responses |
 | POST | `/api/auth/otp/request` `{ phone }` | text a 4-digit Termii code; expires in 10 minutes |
-| POST | `/api/auth/otp/verify` `{ phone, code }` | customer register/sign-in |
-| POST | `/api/auth/rider/login` `{ phone }` | rider sign-in (must already exist) |
+| POST | `/api/auth/otp/verify` `{ phone, code, role? }` | sign-in; role is customer (default), rider, merchant, or agent |
+| POST | `/api/auth/rider/login` | customer JWT → rider session for the same phone (must already exist) |
+| POST | `/api/auth/merchant/login` | customer JWT → shop session for the same phone (must already exist) |
 | POST | `/api/auth/admin/login` `{ email, password }` | ops sign-in |
 | GET/PATCH | `/api/auth/me` `{ name }` | JWT role: customer, rider, or admin |
 | GET | `/api/places/autocomplete?q=&session=` | Google Places |
