@@ -33,6 +33,7 @@ export const POST = api(async (req, ctx) => {
     receiverName: body.receiverName,
     receiverPhone: body.receiverPhone,
     notes: body.notes,
+    noteFor: body.noteFor,
     items: body.items,
     farePayer: "receiver",
     holdUntilReady: true,

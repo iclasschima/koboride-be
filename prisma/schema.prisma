@@ -156,6 +156,9 @@ model Merchant {
   /// Menu-link order hours as "HH:MM" Lagos time. Both null means always open; closing before opening runs past midnight.
   opensAt  String?
   closesAt String?
+  /// Numbers shown on the shop link. Calls fall back to the sign-in phone; WhatsApp is hidden when empty.
+  callPhone     String?
+  whatsappPhone String?
   /// Where KoboRide pays out card-paid menu orders.
   bankName        String?
   bankCode        String?

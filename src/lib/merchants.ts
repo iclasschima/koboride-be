@@ -5,7 +5,7 @@ import { AppError } from "@/lib/errors";
 import { quoteRoute } from "@/lib/fare";
 import { findOrCreateCustomer } from "@/lib/customers";
 import { assertCustomerActive } from "@/lib/auth";
-import { cancelOrder, orderInclude, type OrderRow } from "@/lib/orders";
+import { cancelOrder, composeOrderNotes, orderInclude, splitOrderNotes, type OrderRow } from "@/lib/orders";
 import { assertOfferUsesAvailable } from "@/lib/locationOffers";
 import { normalizePhone, phoneLookupKeys } from "@/lib/phone";
 import { DEFAULT_SHOP_PACKAGE, type PackageType } from "@/lib/packages";
@@ -71,6 +71,8 @@ export function presentMerchant(merchant: Merchant, items: MenuItem[] = []) {
     approved: merchant.approvedAt != null,
     active: merchant.active,
     hours: shopHours(merchant),
+    callPhone: merchant.callPhone,
+    whatsappPhone: merchant.whatsappPhone,
     link: `/m/${merchant.slug}`,
     bank: merchant.bankCode
       ? {
@@ -102,7 +104,7 @@ export function presentMerchantOrder(order: OrderRow) {
     dropoff: order.dropoff,
     receiverName: order.receiverName,
     receiverPhone: order.receiverPhone,
-    notes: order.notes ?? "",
+    notes: splitOrderNotes(order.notes).shopNotes,
     packageType: order.packageType ?? DEFAULT_SHOP_PACKAGE,
     feeNgn: order.feeNgn,
     farePayer: order.farePayer,
@@ -136,6 +138,8 @@ export const shopPatchSchema = z.object({
   address: z.string().min(4).max(240).optional(),
   lat: z.number().finite().optional(),
   lng: z.number().finite().optional(),
+  callPhone: z.string().max(20).nullable().optional(),
+  whatsappPhone: z.string().max(20).nullable().optional(),
   hours: z
     .object({
       opensAt: z.string().regex(CLOCK, "Use a time like 09:00"),
@@ -156,6 +160,12 @@ function assertShopOpen(merchant: Merchant, at: Date = new Date()): void {
       409,
     );
   }
+}
+
+/** Undefined leaves the number as it is; empty clears it. */
+function optionalPhone(input: string | null | undefined): string | null | undefined {
+  if (input === undefined) return undefined;
+  return input?.trim() ? normalizePhone(input) : null;
 }
 
 export async function updateShop(
@@ -182,6 +192,8 @@ export async function updateShop(
       address: body.address?.trim(),
       lat: body.lat,
       lng: body.lng,
+      callPhone: optionalPhone(body.callPhone),
+      whatsappPhone: optionalPhone(body.whatsappPhone),
       opensAt: body.hours === undefined ? undefined : (body.hours?.opensAt ?? null),
       closesAt: body.hours === undefined ? undefined : (body.hours?.closesAt ?? null),
       ...extra,
@@ -411,6 +423,7 @@ export const shopOrderSchema = z.object({
   receiverName: z.string().min(2).max(80),
   receiverPhone: z.string().min(7).max(20),
   notes: z.string().max(400).optional(),
+  noteFor: z.enum(["shop", "rider"]).optional(),
   items: z
     .array(z.object({ itemId: z.string().min(1), qty: z.number().int().min(1).max(99) }))
     .min(1)
@@ -518,6 +531,8 @@ export async function createMerchantOrder(input: {
   receiverName: string;
   receiverPhone: string;
   notes?: string;
+  /** Who the checkout note is for. A blank note is ignored. Shop is the default. */
+  noteFor?: "shop" | "rider";
   packageType?: PackageType;
   farePayer: CustomerRole;
   items?: Array<{ itemId: string; qty: number }>;
@@ -567,8 +582,7 @@ export async function createMerchantOrder(input: {
     input.scheduledFor && input.scheduledFor.getTime() > now.getTime() ? input.scheduledFor : null;
   const readyAt = input.holdUntilReady ? null : now;
   const summary = lines.map((line) => `${line.qty} × ${line.name}`).join(", ");
-  const extra = input.notes?.trim() ?? "";
-  const notes = [summary, extra].filter(Boolean).join("\n");
+  const notes = composeOrderNotes(summary, input.notes ?? "", input.noteFor === "rider" ? "rider" : "shop");
 
   const order = await prisma.order.create({
     data: {

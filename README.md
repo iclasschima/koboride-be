@@ -28,6 +28,7 @@ Shared staging is the **`develop`** branch on both repos. Production is **`main`
 | POST | `/api/auth/otp/verify` `{ phone, code, role? }` | sign-in; role is customer (default), rider, merchant, or agent |
 | POST | `/api/auth/rider/login` | customer JWT → rider session for the same phone (must already exist) |
 | POST | `/api/auth/merchant/login` | customer JWT → shop session for the same phone (must already exist) |
+| POST | `/api/auth/agent/login` | customer JWT → agent session for the same phone (must be an active agent) |
 | POST | `/api/auth/admin/login` `{ email, password }` | ops sign-in |
 | GET/PATCH | `/api/auth/me` `{ name }` | JWT role: customer, rider, or admin |
 | GET | `/api/places/autocomplete?q=&session=` | Google Places |

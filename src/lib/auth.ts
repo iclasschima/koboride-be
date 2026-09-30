@@ -89,9 +89,10 @@ export async function presentCustomer(customer: {
   phone: string;
   name: string | null;
 }) {
-  const [rider, merchant] = await Promise.all([
+  const [rider, merchant, agent] = await Promise.all([
     findApprovedRiderByPhone(customer.phone),
     findMerchantByPhone(customer.phone),
+    prisma.agent.findFirst({ where: { phone: { in: phoneLookupKeys(customer.phone) } } }),
   ]);
   return {
     id: customer.id,
@@ -99,6 +100,7 @@ export async function presentCustomer(customer: {
     name: customer.name,
     isRider: Boolean(rider),
     isMerchant: Boolean(merchant?.active),
+    isAgent: Boolean(agent?.active),
   };
 }
 

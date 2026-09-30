@@ -162,7 +162,7 @@ function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
     pickupLng: order.pickupLng,
     dropoffLat: order.dropoffLat,
     dropoffLng: order.dropoffLng,
-    notes: order.notes ?? "",
+    notes: readableOrderNotes(order.notes),
     senderName: order.senderName,
     senderPhone: order.senderPhone,
     receiverName: order.receiverName,
@@ -232,11 +232,44 @@ function shouldHideCustomerDeliveryPin(order: OrderRow): boolean {
   return order.status !== "in_progress";
 }
 
-/** Riders see the kind of shop bag, never the items or the customer's note to the shop. */
+/** Marks a checkout note the customer addressed to the rider, not the shop. */
+const RIDER_NOTE_MARK = "[[rider]]";
+
+/** Item summary, then either the shop note or a marked rider note. */
+export function composeOrderNotes(summary: string, note: string, noteFor: "shop" | "rider"): string {
+  const extra = note.trim();
+  if (!extra) return summary;
+  const line = noteFor === "rider" ? `${RIDER_NOTE_MARK}${extra.replace(/\s+/g, " ")}` : extra;
+  return [summary, line].filter(Boolean).join("\n");
+}
+
+/** Shop notes stay with the shop. A rider note is returned on its own. */
+export function splitOrderNotes(notes: string | null | undefined): { shopNotes: string; riderNote: string } {
+  const text = notes?.trim() ?? "";
+  if (!text) return { shopNotes: "", riderNote: "" };
+  let riderNote = "";
+  const shopLines: string[] = [];
+  for (const line of text.split("\n")) {
+    if (line.startsWith(RIDER_NOTE_MARK)) riderNote = line.slice(RIDER_NOTE_MARK.length).trim();
+    else shopLines.push(line);
+  }
+  return { shopNotes: shopLines.join("\n").trim(), riderNote };
+}
+
+/** Customer and admin copy. The storage mark stays off the screen. */
+export function readableOrderNotes(notes: string | null | undefined): string {
+  const { shopNotes, riderNote } = splitOrderNotes(notes);
+  if (!riderNote) return shopNotes;
+  return [shopNotes, `For the rider: ${riderNote}`].filter(Boolean).join("\n");
+}
+
+/** Riders see the kind of shop bag, never the items or a note addressed to the shop. */
 export function presentRiderTrip(order: OrderRow) {
   const trip = toTrip(order, !order.deliveryPinRevealedAt);
   if (!order.merchantId) return trip;
-  return { ...trip, notes: order.packageType ?? DEFAULT_SHOP_PACKAGE, lines: [], goodsNgn: 0 };
+  const bag = order.packageType ?? DEFAULT_SHOP_PACKAGE;
+  const { riderNote } = splitOrderNotes(order.notes);
+  return { ...trip, notes: riderNote ? `${bag}\n${riderNote}` : bag, lines: [], goodsNgn: 0 };
 }
 
 export function nextPhase(phase: RiderPhase | null): RiderPhase | null {
