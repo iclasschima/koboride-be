@@ -7,7 +7,7 @@ import { findOrCreateCustomer } from "@/lib/customers";
 import { assertCustomerActive } from "@/lib/auth";
 import { customerCanCancel, orderInclude, type OrderRow } from "@/lib/orders";
 import { assertOfferUsesAvailable } from "@/lib/locationOffers";
-import { normalizePhone } from "@/lib/phone";
+import { normalizePhone, phoneLookupKeys } from "@/lib/phone";
 import { DEFAULT_SHOP_PACKAGE, type PackageType } from "@/lib/packages";
 import {
   notifyAdminBagReady,
@@ -142,6 +142,68 @@ export async function updateShop(
       lng: body.lng,
       deliveryPayer: body.deliveryPayer,
       ...extra,
+    },
+  });
+}
+
+export const shopCreateSchema = z.object({
+  phone: z.string().min(7).max(20),
+  name: z.string().min(2).max(80),
+  address: z.string().min(4).max(240),
+  lat: z.number().finite(),
+  lng: z.number().finite(),
+  slug: z.string().min(2).max(40).optional(),
+  deliveryPayer: z.enum(["sender", "receiver"]).optional(),
+  approved: z.boolean().optional(),
+});
+
+function slugFromName(name: string): string {
+  const base = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32)
+    .replace(/-+$/, "");
+  return base.length >= 2 ? base : "shop";
+}
+
+async function freeSlug(base: string): Promise<string> {
+  for (let n = 1; n <= 20; n += 1) {
+    const slug = n === 1 ? base : `${base}-${n}`;
+    const taken = await prisma.merchant.findUnique({ where: { slug }, select: { id: true } });
+    if (!taken) return slug;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+/** Admin-added shops sign in later with this phone and find their shop ready. */
+export async function createShop(body: z.infer<typeof shopCreateSchema>): Promise<Merchant> {
+  const phone = normalizePhone(body.phone);
+  const existing = await prisma.merchant.findFirst({
+    where: { phone: { in: phoneLookupKeys(phone) } },
+    select: { id: true },
+  });
+  if (existing) throw new AppError("A shop already uses this phone number", "PHONE_TAKEN", 409);
+
+  let slug: string;
+  if (body.slug) {
+    slug = assertSlug(body.slug);
+    const taken = await prisma.merchant.findUnique({ where: { slug }, select: { id: true } });
+    if (taken) throw new AppError("That link is already used", "SLUG_TAKEN", 409);
+  } else {
+    slug = await freeSlug(slugFromName(body.name));
+  }
+
+  return prisma.merchant.create({
+    data: {
+      phone,
+      name: body.name.trim(),
+      slug,
+      address: body.address.trim(),
+      lat: body.lat,
+      lng: body.lng,
+      deliveryPayer: body.deliveryPayer,
+      approvedAt: body.approved === false ? null : new Date(),
     },
   });
 }

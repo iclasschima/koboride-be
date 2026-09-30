@@ -1,9 +1,17 @@
 import { api, json, options } from "@/lib/errors";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { presentMerchant } from "@/lib/merchants";
+import { parseBody, readJson } from "@/lib/validate";
+import { createShop, presentMerchant, shopCreateSchema } from "@/lib/merchants";
 
 export const OPTIONS = () => options();
+
+export const POST = api(async (req) => {
+  requireUser(req, ["admin"]);
+  const body = parseBody(shopCreateSchema, await readJson(req));
+  const merchant = await createShop(body);
+  return json({ merchant: presentMerchant(merchant) }, 201);
+});
 
 export const GET = api(async (req) => {
   requireUser(req, ["admin"]);
