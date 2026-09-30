@@ -111,11 +111,14 @@ export const POST = api(async (req, ctx) => {
     Object.assign(data, orderCompletedData());
   }
 
-  let updated = await prisma.order.update({
-    where: { id: order.id },
+  const { count } = await prisma.order.updateMany({
+    where: { id: order.id, riderId: rider.id, status: "in_progress", riderPhase: order.riderPhase },
     data,
-    include: orderInclude,
   });
+  if (count === 0) {
+    throw new AppError("This job changed. Open it again.", "INVALID_STATUS", 409);
+  }
+  let updated = await prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: orderInclude });
   if (
     riderPhase === "en_route_dropoff" &&
     order.riderPhase !== "en_route_dropoff" &&

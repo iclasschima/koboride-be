@@ -4,7 +4,8 @@ import { optionalUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseBody, readJson } from "@/lib/validate";
 import { rateLimit } from "@/lib/rate-limit";
-import { quoteRoute } from "@/lib/fare";
+import { customerFeeNgn, quoteRoute } from "@/lib/fare";
+import { getPlatformSettings } from "@/lib/settings";
 import { assertZoneHasRiders, shopLive } from "@/lib/merchants";
 
 export const OPTIONS = () => options();
@@ -34,5 +35,9 @@ export const POST = api(async (req, ctx) => {
     customerId: user?.role === "customer" ? user.sub : undefined,
   });
   await assertZoneHasRiders(quote.zoneSlug);
-  return json({ feeNgn: quote.feeNgn });
+  const settings = await getPlatformSettings();
+  return json({
+    feeNgn: quote.feeNgn,
+    cardFeeNgn: customerFeeNgn(quote.listFeeNgn, "paystack", settings.onlinePaymentDiscountNgn),
+  });
 });

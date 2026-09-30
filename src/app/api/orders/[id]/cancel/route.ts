@@ -5,19 +5,12 @@ import { parseBody, readJson } from "@/lib/validate";
 import {
   assertCustomerCancelAllowed,
   assertCustomerOwns,
+  cancelOrder,
   getOrderOrThrow,
   normalizeCancelReason,
-  orderInclude,
   presentTrip,
-  refundIfPaidOnline,
 } from "@/lib/orders";
-import { prisma } from "@/lib/prisma";
-import { maybeRetentionOffer, writeOrderEvent } from "@/lib/dispatch";
-import {
-  notifyAdminOrderStatus,
-  notifyCustomerPaymentRefunded,
-  notifyRiderOrderCancelled,
-} from "@/lib/push";
+import { maybeRetentionOffer } from "@/lib/dispatch";
 
 export const OPTIONS = () => options();
 
@@ -49,21 +42,13 @@ export const POST = api(async (req, ctx) => {
   }
 
   const cancelReason = normalizeCancelReason(body.reason, body.note);
-  const refund = await refundIfPaidOnline(order);
-
-  const updated = await prisma.order.update({
-    where: { id: order.id },
-    data: { status: "cancelled", cancelReason, ...refund },
-    include: orderInclude,
-  });
-  await writeOrderEvent(order.id, "cancelled", {
+  const updated = await cancelOrder(order, {
     reason: cancelReason,
-    refunded: refund.paymentStatus === "refunded",
+    event: "cancelled",
+    eventData: { reason: cancelReason },
   });
-  await notifyAdminOrderStatus(updated);
-  if (updated.riderId) await notifyRiderOrderCancelled(updated);
-  if (refund.paymentStatus === "refunded") {
-    await notifyCustomerPaymentRefunded(updated);
+  if (!updated) {
+    throw new AppError("You can only cancel before the rider picks up the package", "ALREADY_PICKED_UP", 409);
   }
   return json({ trip: presentTrip(updated) });
 });

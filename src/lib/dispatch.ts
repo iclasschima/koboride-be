@@ -9,11 +9,7 @@ import {
   minutesToMs,
   type PlatformSettings,
 } from "@/lib/settings";
-import {
-  notifyAdminOrderStatus,
-  notifyCustomerPaymentRefunded,
-  notifySearchingRider,
-} from "@/lib/push";
+import { notifySearchingRider } from "@/lib/push";
 
 const AUTO_CANCEL_REASON = "No rider available after waiting";
 const EMPTY_ZONE_CANCEL_REASON = "No riders in this area yet";
@@ -130,27 +126,16 @@ async function cancelUnassignedSearch(
   order: OrderRow,
   now: Date,
   input: { reason: string; eventType: string },
-): Promise<void> {
-  const { refundIfPaidOnline } = await import("@/lib/orders");
-  const refund = await refundIfPaidOnline(order);
-  const updated = await prisma.order.update({
-    where: { id: order.id },
-    data: {
-      status: "cancelled",
-      cancelReason: input.reason,
-      ...refund,
-    },
-    include: orderInclude,
-  });
+): Promise<boolean> {
+  const { cancelOrder } = await import("@/lib/orders");
   const since = searchingSince(order, now);
-  await writeOrderEvent(order.id, input.eventType, {
-    searchingSince: since.toISOString(),
-    waitedMs: now.getTime() - since.getTime(),
+  const updated = await cancelOrder(order, {
+    reason: input.reason,
+    event: input.eventType,
+    eventData: { searchingSince: since.toISOString(), waitedMs: now.getTime() - since.getTime() },
+    searchingOnly: true,
   });
-  await notifyAdminOrderStatus(updated);
-  if (refund.paymentStatus === "refunded") {
-    await notifyCustomerPaymentRefunded(updated);
-  }
+  return updated != null;
 }
 
 async function zoneHasApprovedRiders(
@@ -183,19 +168,19 @@ async function autoCancelStaleSearching(now = new Date()): Promise<number> {
       !(await zoneHasApprovedRiders(order.zoneSlug, ridersByZone));
 
     if (empty) {
-      await cancelUnassignedSearch(order, now, {
+      const done = await cancelUnassignedSearch(order, now, {
         reason: EMPTY_ZONE_CANCEL_REASON,
         eventType: "auto_cancelled_empty_zone",
       });
-      cancelled += 1;
+      if (done) cancelled += 1;
       continue;
     }
     if (waited >= config.searchingAutoCancelAfterMs) {
-      await cancelUnassignedSearch(order, now, {
+      const done = await cancelUnassignedSearch(order, now, {
         reason: AUTO_CANCEL_REASON,
         eventType: "auto_cancelled_no_rider",
       });
-      cancelled += 1;
+      if (done) cancelled += 1;
     }
   }
   return cancelled;
@@ -204,10 +189,13 @@ async function autoCancelStaleSearching(now = new Date()): Promise<number> {
 export async function runOrderMaintenance(now = new Date()): Promise<{
   activated: number;
   cancelled: number;
+  refunded: number;
 }> {
   const activated = await activateDueScheduledOrders(now);
   const cancelled = await autoCancelStaleSearching(now);
-  return { activated, cancelled };
+  const { retryFailedRefunds } = await import("@/lib/orders");
+  const refunded = await retryFailedRefunds(now);
+  return { activated, cancelled, refunded };
 }
 
 export function retentionDiscountNgn(feeNgn: number): number {

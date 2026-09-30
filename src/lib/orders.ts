@@ -13,7 +13,10 @@ import { zoneName } from "@/lib/zones";
 import { nairaToKobo, refundPaystack, verifyPaystack } from "@/lib/paystack";
 import {
   notifyAdminNewOrder,
+  notifyAdminOrderStatus,
+  notifyCustomerPaymentRefunded,
   notifyOrderAccepted,
+  notifyRiderOrderCancelled,
   notifySearchingRider,
 } from "@/lib/push";
 import {
@@ -461,6 +464,82 @@ export async function refundIfPaidOnline(order: {
       502,
     );
   }
+}
+
+/** A failed refund leaves the payment "paid", so `retryFailedRefunds` picks it up later. */
+export async function refundOrRetryLater(order: Parameters<typeof refundIfPaidOnline>[0] & { id: string }) {
+  try {
+    return await refundIfPaidOnline(order);
+  } catch (err) {
+    console.error("[refund]", order.id, err);
+    return {};
+  }
+}
+
+/**
+ * Cancels an order the rider has not picked up and refunds its card payment.
+ * The status check runs in the same update as the cancel, so a pickup at the
+ * same moment wins. Returns null when it is too late to cancel.
+ */
+export async function cancelOrder(
+  order: OrderRow,
+  input: {
+    reason: string;
+    event: string;
+    eventData?: Record<string, Prisma.InputJsonValue>;
+    searchingOnly?: boolean;
+  },
+): Promise<OrderRow | null> {
+  const { count } = await prisma.order.updateMany({
+    where: input.searchingOnly
+      ? { id: order.id, status: "dispatching", riderId: null }
+      : {
+          id: order.id,
+          status: { in: ["dispatching", "in_progress"] },
+          OR: [{ riderPhase: null }, { riderPhase: { notIn: PICKED_UP } }],
+        },
+    data: { status: "cancelled", cancelReason: input.reason },
+  });
+  if (count === 0) return null;
+
+  const refund = await refundOrRetryLater(order);
+  const updated = await prisma.order.update({
+    where: { id: order.id },
+    data: refund,
+    include: orderInclude,
+  });
+  const refunded = refund.paymentStatus === "refunded";
+  await writeOrderEvent(order.id, input.event, { ...input.eventData, refunded });
+  await notifyAdminOrderStatus(updated);
+  if (updated.riderId) await notifyRiderOrderCancelled(updated);
+  if (refunded) await notifyCustomerPaymentRefunded(updated);
+  return updated;
+}
+
+const REFUND_RETRY_DAYS = 3;
+
+export async function retryFailedRefunds(now = new Date()): Promise<number> {
+  const orders = await prisma.order.findMany({
+    where: {
+      status: "cancelled",
+      paymentMethod: "paystack",
+      paymentStatus: "paid",
+      paystackReference: { not: null },
+      updatedAt: { gte: new Date(now.getTime() - REFUND_RETRY_DAYS * 24 * 60 * 60 * 1000) },
+    },
+    include: orderInclude,
+    take: 20,
+  });
+  let refunded = 0;
+  for (const order of orders) {
+    const refund = await refundOrRetryLater(order);
+    if (refund.paymentStatus !== "refunded") continue;
+    const updated = await prisma.order.update({ where: { id: order.id }, data: refund, include: orderInclude });
+    await writeOrderEvent(order.id, "refund_retried");
+    await notifyCustomerPaymentRefunded(updated);
+    refunded += 1;
+  }
+  return refunded;
 }
 
 export type PlaceOrderInput = {

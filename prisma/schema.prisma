@@ -153,6 +153,16 @@ model Merchant {
   approvedAt DateTime?
   /// Who pays delivery on menu-link orders: the shop at pickup, or the customer at drop-off.
   deliveryPayer CustomerRole @default(receiver)
+  /// Menu-link order hours as "HH:MM" Lagos time. Both null means always open; closing before opening runs past midnight.
+  opensAt  String?
+  closesAt String?
+  /// Where KoboRide pays out card-paid menu orders.
+  bankName        String?
+  bankCode        String?
+  /** AES-GCM ciphertext. */
+  bankAccountNo   String?
+  /** Name returned by Paystack resolve. */
+  bankAccountName String?
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   items     MenuItem[]
@@ -166,6 +176,8 @@ model MenuItem {
   name       String
   priceNgn   Int
   available  Boolean  @default(true)
+  /// Added to every link order at least once, e.g. a takeaway pack.
+  required   Boolean  @default(false)
   sort       Int      @default(0)
   createdAt  DateTime @default(now())
 
@@ -429,8 +441,10 @@ model Order {
   /** Shop this bag belongs to. Null on a normal customer errand. */
   merchantId     String?
   merchant       Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
-  /** Menu total the customer pays the shop directly, in naira. Riders never collect it. */
+  /** Menu total in naira. Paid to the shop directly, or by card with the delivery. Riders never collect it. */
   goodsNgn       Int       @default(0)
+  /** Card-paid menu orders only: when KoboRide paid the shop its share. */
+  shopPaidOutAt  DateTime?
   /// Shop orders: the kind of bag (e.g. "Food pack"). Riders see this instead of the items.
   packageType    String?
   /** Null while a link order is still being packed. Shop-sent bags are ready immediately. */

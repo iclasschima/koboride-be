@@ -100,6 +100,14 @@ export function assertCustomerActive(customer: { active: boolean }): void {
   );
 }
 
+/** A token for a customer that no longer exists is treated as signed out, so the app asks for a new code. */
+export async function requireCustomer(req: Request) {
+  const user = requireUser(req, ["customer"]);
+  const customer = await prisma.customer.findUnique({ where: { id: user.sub } });
+  if (!customer) throw new AppError("Your sign-in expired. Confirm your phone again.", "SESSION_EXPIRED", 401);
+  return customer;
+}
+
 export async function signInCustomer(phoneInput: string, name?: string) {
   const customer = await findOrCreateCustomer(phoneInput, name);
   assertCustomerActive(customer);

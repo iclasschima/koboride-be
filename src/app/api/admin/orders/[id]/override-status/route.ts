@@ -5,7 +5,14 @@ import { parseBody, readJson } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
 import { noteRiderFirstTen } from "@/lib/onboarding";
 import { writeConfirmedLedgerNow } from "@/lib/ledger";
-import { getOrderOrThrow, orderCompletedData, orderInclude, presentTrip, refundIfPaidOnline } from "@/lib/orders";
+import {
+  getOrderOrThrow,
+  hasPickedUp,
+  orderCompletedData,
+  orderInclude,
+  presentTrip,
+  refundOrRetryLater,
+} from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 import {
   notifyAdminOrderStatus,
@@ -35,6 +42,13 @@ export const POST = api(async (req, ctx) => {
   );
 
   const order = await getOrderOrThrow(id);
+  if (
+    body.status === "cancelled" &&
+    order.status !== "cancelled" &&
+    (order.status === "completed" || hasPickedUp(order))
+  ) {
+    throw new AppError("Orders cannot be cancelled after the rider picks up", "ALREADY_PICKED_UP", 409);
+  }
   const data: {
     status: OrderStatus;
     riderPhase: RiderPhase | null;
@@ -66,7 +80,7 @@ export const POST = api(async (req, ctx) => {
     Object.assign(data, order.completedAt ? { riderPhase: "delivered" } : orderCompletedData());
   } else if (body.status === "cancelled") {
     data.completedAt = null;
-    Object.assign(data, await refundIfPaidOnline(order));
+    Object.assign(data, await refundOrRetryLater(order));
   }
 
   const updated = await prisma.order.update({

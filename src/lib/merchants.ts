@@ -1,20 +1,32 @@
 import { z } from "zod";
-import type { CustomerRole, Merchant, MenuItem, OrderLine } from "@prisma/client";
+import type { Customer, CustomerRole, Merchant, MenuItem, OrderLine, PaymentMethod } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { quoteRoute } from "@/lib/fare";
 import { findOrCreateCustomer } from "@/lib/customers";
 import { assertCustomerActive } from "@/lib/auth";
-import { customerCanCancel, orderInclude, type OrderRow } from "@/lib/orders";
+import { cancelOrder, orderInclude, type OrderRow } from "@/lib/orders";
 import { assertOfferUsesAvailable } from "@/lib/locationOffers";
 import { normalizePhone, phoneLookupKeys } from "@/lib/phone";
 import { DEFAULT_SHOP_PACKAGE, type PackageType } from "@/lib/packages";
+import { shopCardPaid, shopCardTotalNgn, shopPayoutNgn } from "@/lib/shopMoney";
+import { CLOCK, formatClock, shopHours, shopOpenAt } from "@/lib/shopHours";
+import { onlinePaymentsEnabled } from "@/lib/payoutFlags";
+import { cachedBanks, lookupAccountName } from "@/lib/bankVerify";
+import { decryptField, encryptField, maskSecret } from "@/lib/fieldCrypto";
+import {
+  initializePaystack,
+  nairaToKobo,
+  newPaystackReference,
+  paystackConfigured,
+  paystackEmail,
+  paystackPublicKey,
+  verifyPaystack,
+} from "@/lib/paystack";
 import {
   notifyAdminBagReady,
   notifyAdminNewOrder,
-  notifyAdminOrderStatus,
   notifyMerchantNewOrder,
-  notifyRiderOrderCancelled,
   notifySearchingRider,
 } from "@/lib/push";
 import { writeOrderEvent } from "@/lib/dispatch";
@@ -58,8 +70,15 @@ export function presentMerchant(merchant: Merchant, items: MenuItem[] = []) {
     ready: shopReady(merchant),
     approved: merchant.approvedAt != null,
     active: merchant.active,
-    deliveryPayer: merchant.deliveryPayer,
+    hours: shopHours(merchant),
     link: `/m/${merchant.slug}`,
+    bank: merchant.bankCode
+      ? {
+          bankName: merchant.bankName ?? "",
+          accountName: merchant.bankAccountName ?? "",
+          accountNumber: maskSecret(decryptField(merchant.bankAccountNo)),
+        }
+      : null,
     items: items.map(presentItem),
   };
 }
@@ -70,6 +89,7 @@ export function presentItem(item: MenuItem) {
     name: item.name,
     priceNgn: item.priceNgn,
     available: item.available,
+    required: item.required,
   };
 }
 
@@ -87,6 +107,9 @@ export function presentMerchantOrder(order: OrderRow) {
     feeNgn: order.feeNgn,
     farePayer: order.farePayer,
     goodsNgn: order.goodsNgn,
+    paidOnline: shopCardPaid(order),
+    shopPayoutNgn: shopCardPaid(order) ? shopPayoutNgn(order) : 0,
+    shopPaidOutAt: order.shopPaidOutAt?.toISOString() ?? null,
     readyAt: order.readyAt?.toISOString() ?? null,
     scheduledFor: order.scheduledFor?.toISOString() ?? null,
     createdAt: order.createdAt.toISOString(),
@@ -113,8 +136,27 @@ export const shopPatchSchema = z.object({
   address: z.string().min(4).max(240).optional(),
   lat: z.number().finite().optional(),
   lng: z.number().finite().optional(),
-  deliveryPayer: z.enum(["sender", "receiver"]).optional(),
+  hours: z
+    .object({
+      opensAt: z.string().regex(CLOCK, "Use a time like 09:00"),
+      closesAt: z.string().regex(CLOCK, "Use a time like 21:00"),
+    })
+    .refine((hours) => hours.opensAt !== hours.closesAt, "Opening and closing times must differ")
+    .nullable()
+    .optional(),
 });
+
+/** Link orders only. The shop can still send its own bags when closed. */
+function assertShopOpen(merchant: Merchant, at: Date = new Date()): void {
+  const hours = shopHours(merchant);
+  if (hours && !shopOpenAt(hours, at)) {
+    throw new AppError(
+      `${merchant.name} is closed now. Orders open at ${formatClock(hours.opensAt)}.`,
+      "SHOP_CLOSED",
+      409,
+    );
+  }
+}
 
 export async function updateShop(
   merchant: Merchant,
@@ -140,7 +182,8 @@ export async function updateShop(
       address: body.address?.trim(),
       lat: body.lat,
       lng: body.lng,
-      deliveryPayer: body.deliveryPayer,
+      opensAt: body.hours === undefined ? undefined : (body.hours?.opensAt ?? null),
+      closesAt: body.hours === undefined ? undefined : (body.hours?.closesAt ?? null),
       ...extra,
     },
   });
@@ -153,7 +196,6 @@ export const shopCreateSchema = z.object({
   lat: z.number().finite(),
   lng: z.number().finite(),
   slug: z.string().min(2).max(40).optional(),
-  deliveryPayer: z.enum(["sender", "receiver"]).optional(),
   approved: z.boolean().optional(),
 });
 
@@ -202,10 +244,83 @@ export async function createShop(body: z.infer<typeof shopCreateSchema>): Promis
       address: body.address.trim(),
       lat: body.lat,
       lng: body.lng,
-      deliveryPayer: body.deliveryPayer,
       approvedAt: body.approved === false ? null : new Date(),
     },
   });
+}
+
+export const shopBankSchema = z.object({
+  bankCode: z.string().min(2).max(20),
+  accountNumber: z.string().regex(/^\d{10}$/, "Use the 10-digit account number"),
+});
+
+/** The account name always comes from Paystack, never from what was typed. */
+export async function setShopBank(merchantId: string, body: z.infer<typeof shopBankSchema>): Promise<Merchant> {
+  const bank = (await cachedBanks()).find((row) => row.code === body.bankCode);
+  if (!bank) throw new AppError("Choose a bank from the list", "VALIDATION_ERROR", 400);
+  const accountName = await lookupAccountName(bank.code, body.accountNumber);
+  return prisma.merchant.update({
+    where: { id: merchantId },
+    data: {
+      bankName: bank.name,
+      bankCode: bank.code,
+      bankAccountNo: encryptField(body.accountNumber),
+      bankAccountName: accountName,
+    },
+  });
+}
+
+export function adminShopBank(merchant: Merchant) {
+  if (!merchant.bankCode) return null;
+  return {
+    bankName: merchant.bankName ?? "",
+    accountName: merchant.bankAccountName ?? "",
+    accountNumber: decryptField(merchant.bankAccountNo) ?? "",
+  };
+}
+
+const OWED_WHERE = {
+  paymentMethod: "paystack",
+  paymentStatus: "paid",
+  status: "completed",
+} as const;
+
+export async function shopSettlement(merchantId: string) {
+  const orders = await prisma.order.findMany({
+    where: { merchantId, ...OWED_WHERE },
+    select: { goodsNgn: true, feeNgn: true, farePayer: true, shopPaidOutAt: true },
+  });
+  const owed = orders.filter((order) => !order.shopPaidOutAt);
+  return {
+    owedNgn: owed.reduce((sum, order) => sum + shopPayoutNgn(order), 0),
+    owedOrders: owed.length,
+    paidOutNgn: orders
+      .filter((order) => order.shopPaidOutAt)
+      .reduce((sum, order) => sum + shopPayoutNgn(order), 0),
+  };
+}
+
+/** The admin confirms the amount they transferred so a new delivery can't slip into the batch. */
+export async function markShopPaidOut(merchantId: string, amountNgn: number): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const owed = await tx.order.findMany({
+      where: { merchantId, ...OWED_WHERE, shopPaidOutAt: null },
+      select: { id: true, goodsNgn: true, feeNgn: true, farePayer: true },
+    });
+    const total = owed.reduce((sum, order) => sum + shopPayoutNgn(order), 0);
+    if (total <= 0) throw new AppError("Nothing is owed to this shop", "NOTHING_OWED", 409);
+    if (total !== amountNgn) {
+      throw new AppError("The amount owed changed. Refresh and try again.", "AMOUNT_CHANGED", 409);
+    }
+    await tx.order.updateMany({
+      where: { id: { in: owed.map((order) => order.id) }, shopPaidOutAt: null },
+      data: { shopPaidOutAt: new Date() },
+    });
+  });
+}
+
+export async function shopCardPayments(): Promise<boolean> {
+  return paystackConfigured() && (await onlinePaymentsEnabled());
 }
 
 export function listShopItems(merchantId: string): Promise<MenuItem[]> {
@@ -218,18 +333,20 @@ export function listShopItems(merchantId: string): Promise<MenuItem[]> {
 export const itemCreateSchema = z.object({
   name: z.string().min(1).max(80),
   priceNgn: z.number().int().min(0).max(5_000_000),
+  required: z.boolean().optional(),
 });
 
 export const itemPatchSchema = z.object({
   name: z.string().min(1).max(80).optional(),
   priceNgn: z.number().int().min(0).max(5_000_000).optional(),
   available: z.boolean().optional(),
+  required: z.boolean().optional(),
 });
 
 export async function addShopItem(merchantId: string, body: z.infer<typeof itemCreateSchema>): Promise<MenuItem> {
   const count = await prisma.menuItem.count({ where: { merchantId } });
   return prisma.menuItem.create({
-    data: { merchantId, name: body.name.trim(), priceNgn: body.priceNgn, sort: count },
+    data: { merchantId, name: body.name.trim(), priceNgn: body.priceNgn, required: body.required, sort: count },
   });
 }
 
@@ -247,7 +364,7 @@ export async function updateShopItem(
   await ownItem(merchantId, itemId);
   return prisma.menuItem.update({
     where: { id: itemId },
-    data: { name: body.name?.trim(), priceNgn: body.priceNgn, available: body.available },
+    data: { name: body.name?.trim(), priceNgn: body.priceNgn, available: body.available, required: body.required },
   });
 }
 
@@ -258,22 +375,139 @@ export async function removeShopItem(merchantId: string, itemId: string): Promis
 
 type LineInput = { name: string; qty: number; priceNgn: number };
 
-/** Link orders are priced from the live menu, not from what the browser sent. */
+/**
+ * Link orders are priced from the live menu, not from what the browser sent.
+ * Required items are added once if missing, so the card charge and the order always agree.
+ */
 async function priceLines(merchantId: string, lines: Array<{ itemId: string; qty: number }>): Promise<LineInput[]> {
-  const ids = Array.from(new Set(lines.map((line) => line.itemId)));
-  const items = await prisma.menuItem.findMany({
-    where: { id: { in: ids }, merchantId, available: true },
-  });
-  const byId = new Map(items.map((item) => [item.id, item]));
+  const menu = await prisma.menuItem.findMany({ where: { merchantId, available: true } });
+  const byId = new Map(menu.map((item) => [item.id, item]));
   const priced: LineInput[] = [];
+  const chosen = new Set<string>();
   for (const line of lines) {
     const item = byId.get(line.itemId);
     if (!item) throw new AppError("An item is no longer available. Refresh the menu.", "ITEM_UNAVAILABLE", 409);
     const qty = Math.trunc(line.qty);
     if (qty < 1 || qty > 99) throw new AppError("Choose between 1 and 99 of each item", "VALIDATION_ERROR", 400);
+    chosen.add(item.id);
     priced.push({ name: item.name, qty, priceNgn: item.priceNgn });
   }
+  const hasOptional = menu.some((item) => !item.required);
+  if (hasOptional && !lines.some((line) => !byId.get(line.itemId)?.required)) {
+    throw new AppError("Add an item from the menu", "VALIDATION_ERROR", 400);
+  }
+  for (const item of menu) {
+    if (item.required && !chosen.has(item.id)) {
+      priced.push({ name: item.name, qty: 1, priceNgn: item.priceNgn });
+    }
+  }
   return priced;
+}
+
+export const shopOrderSchema = z.object({
+  dropoff: z.string().min(3).max(240),
+  dropoffLat: z.number().finite(),
+  dropoffLng: z.number().finite(),
+  receiverName: z.string().min(2).max(80),
+  receiverPhone: z.string().min(7).max(20),
+  notes: z.string().max(400).optional(),
+  items: z
+    .array(z.object({ itemId: z.string().min(1), qty: z.number().int().min(1).max(99) }))
+    .min(1)
+    .max(30),
+});
+
+function assertShopCanSend(merchant: Merchant): asserts merchant is Merchant & { lat: number; lng: number } {
+  if (!shopReady(merchant) || merchant.lat == null || merchant.lng == null) {
+    throw new AppError("Add the shop name and pickup address first", "SHOP_INCOMPLETE", 400);
+  }
+  if (!merchant.approvedAt) {
+    throw new AppError("KoboRide is still reviewing this shop", "SHOP_PENDING", 403);
+  }
+}
+
+async function priceShopOrder(input: {
+  merchant: Merchant & { lat: number; lng: number };
+  dropoff: string;
+  dropoffLat: number;
+  dropoffLng: number;
+  items?: Array<{ itemId: string; qty: number }>;
+  paymentMethod: PaymentMethod;
+  customerId: string;
+}) {
+  const { merchant } = input;
+  const lines = input.items?.length ? await priceLines(merchant.id, input.items) : [];
+  const goodsNgn = lines.reduce((sum, line) => sum + line.priceNgn * line.qty, 0);
+  const quote = await quoteRoute({
+    pickup: `${merchant.name} — ${merchant.address.trim()}`,
+    dropoff: input.dropoff.trim(),
+    pickupLat: merchant.lat,
+    pickupLng: merchant.lng,
+    dropoffLat: input.dropoffLat,
+    dropoffLng: input.dropoffLng,
+    paymentMethod: input.paymentMethod,
+    customerId: input.customerId,
+  });
+  await assertZoneHasRiders(quote.zoneSlug);
+  await assertOfferUsesAvailable(input.customerId, [quote.pickupOfferId, quote.dropoffOfferId]);
+  return { lines, goodsNgn, quote };
+}
+
+/** Starts a Paystack charge for a link order. The order is only created once the charge is verified. */
+export async function startShopCardPayment(
+  merchant: Merchant,
+  body: z.infer<typeof shopOrderSchema>,
+  customer: Customer,
+) {
+  assertShopCanSend(merchant);
+  assertShopOpen(merchant);
+  if (!(await shopCardPayments())) {
+    throw new AppError("Card payment is not available right now", "ONLINE_PAYMENTS_DISABLED", 503);
+  }
+  assertCustomerActive(customer);
+  const { goodsNgn, quote } = await priceShopOrder({
+    merchant,
+    dropoff: body.dropoff,
+    dropoffLat: body.dropoffLat,
+    dropoffLng: body.dropoffLng,
+    items: body.items,
+    paymentMethod: "paystack",
+    customerId: customer.id,
+  });
+  const totalNgn = shopCardTotalNgn(goodsNgn, quote.feeNgn, "receiver");
+  const email = paystackEmail(customer.phone);
+  const started = await initializePaystack({
+    email,
+    amountKobo: nairaToKobo(totalNgn),
+    reference: newPaystackReference(),
+    metadata: { customerId: customer.id, merchantId: merchant.id, dropoff: quote.dropoff },
+  });
+  return {
+    accessCode: started.accessCode,
+    reference: started.reference,
+    publicKey: paystackPublicKey(),
+    email,
+    amountKobo: nairaToKobo(totalNgn),
+    feeNgn: totalNgn,
+  };
+}
+
+async function verifyShopCardPayment(reference: string | undefined, totalNgn: number) {
+  if (!(await onlinePaymentsEnabled())) {
+    throw new AppError("Online payment is not available right now", "ONLINE_PAYMENTS_DISABLED", 403);
+  }
+  const ref = reference?.trim();
+  if (!ref) throw new AppError("Payment reference is missing", "VALIDATION_ERROR", 400);
+  const used = await prisma.order.findUnique({ where: { paystackReference: ref }, select: { id: true } });
+  if (used) throw new AppError("This payment was already used", "PAYMENT_ALREADY_USED", 409);
+  const paid = await verifyPaystack(ref);
+  if (paid.status !== "success") {
+    throw new AppError("Payment was not successful", "PAYMENT_REQUIRED", 402);
+  }
+  if (paid.amountKobo !== nairaToKobo(totalNgn)) {
+    throw new AppError("Paid amount does not match the order", "PAYMENT_MISMATCH", 409);
+  }
+  return { paymentStatus: "paid" as const, paystackReference: ref, paidAt: new Date() };
 }
 
 export async function createMerchantOrder(input: {
@@ -290,14 +524,11 @@ export async function createMerchantOrder(input: {
   scheduledFor?: Date | null;
   holdUntilReady: boolean;
   customerId?: string;
+  paymentMethod?: PaymentMethod;
+  paystackReference?: string;
 }): Promise<OrderRow> {
   const { merchant } = input;
-  if (!shopReady(merchant) || merchant.lat == null || merchant.lng == null) {
-    throw new AppError("Add the shop name and pickup address first", "SHOP_INCOMPLETE", 400);
-  }
-  if (!merchant.approvedAt) {
-    throw new AppError("KoboRide is still reviewing this shop", "SHOP_PENDING", 403);
-  }
+  assertShopCanSend(merchant);
   const receiverName = input.receiverName.trim();
   if (receiverName.length < 2) {
     throw new AppError("Add the receiver name", "VALIDATION_ERROR", 400);
@@ -307,27 +538,29 @@ export async function createMerchantOrder(input: {
   }
   const receiverPhone = normalizePhone(input.receiverPhone);
 
-  const lines = input.items?.length ? await priceLines(merchant.id, input.items) : [];
-  const goodsNgn = lines.reduce((sum, line) => sum + line.priceNgn * line.qty, 0);
-
   const customer = input.customerId
     ? await prisma.customer.findUnique({ where: { id: input.customerId } })
     : await findOrCreateCustomer(receiverPhone, receiverName);
   if (!customer) throw new AppError("Customer not found", "NOT_FOUND", 404);
   assertCustomerActive(customer);
 
-  const quote = await quoteRoute({
-    pickup: `${merchant.name} — ${merchant.address.trim()}`,
-    dropoff: input.dropoff.trim(),
-    pickupLat: merchant.lat,
-    pickupLng: merchant.lng,
+  const paymentMethod: PaymentMethod = input.paymentMethod === "paystack" ? "paystack" : "cash";
+  const { lines, goodsNgn, quote } = await priceShopOrder({
+    merchant,
+    dropoff: input.dropoff,
     dropoffLat: input.dropoffLat,
     dropoffLng: input.dropoffLng,
-    paymentMethod: "cash",
+    items: input.items,
+    paymentMethod,
     customerId: customer.id,
   });
-  await assertZoneHasRiders(quote.zoneSlug);
-  await assertOfferUsesAvailable(customer.id, [quote.pickupOfferId, quote.dropoffOfferId]);
+  const payment =
+    paymentMethod === "paystack"
+      ? await verifyShopCardPayment(
+          input.paystackReference,
+          shopCardTotalNgn(goodsNgn, quote.feeNgn, input.farePayer),
+        )
+      : null;
 
   const now = new Date();
   const scheduledFor =
@@ -367,6 +600,8 @@ export async function createMerchantOrder(input: {
       routeDurationSeconds: quote.routeDurationSeconds,
       scheduledFor,
       deliveryPin: "",
+      paymentMethod,
+      ...payment,
       lines: lines.length ? { create: lines } : undefined,
     },
     include: orderInclude,
@@ -375,6 +610,7 @@ export async function createMerchantOrder(input: {
   await writeOrderEvent(order.id, input.holdUntilReady ? "shop_order_held" : "shop_order_sent", {
     goodsNgn,
     farePayer: input.farePayer,
+    paymentMethod,
   });
   await notifyAdminNewOrder(order);
   if (input.customerId) await notifyMerchantNewOrder(order);
@@ -411,16 +647,7 @@ export async function markOrderReady(merchantId: string, orderId: string): Promi
 
 export async function cancelShopOrder(merchantId: string, orderId: string): Promise<OrderRow> {
   const order = await ownOrder(merchantId, orderId);
-  if (!customerCanCancel(order)) {
-    throw new AppError("The rider already has the bag", "ALREADY_PICKED_UP", 409);
-  }
-  const updated = await prisma.order.update({
-    where: { id: order.id },
-    data: { status: "cancelled", cancelReason: "Cancelled by the shop" },
-    include: orderInclude,
-  });
-  await writeOrderEvent(order.id, "shop_cancelled");
-  await notifyAdminOrderStatus(updated);
-  if (updated.riderId) await notifyRiderOrderCancelled(updated);
+  const updated = await cancelOrder(order, { reason: "Cancelled by the shop", event: "shop_cancelled" });
+  if (!updated) throw new AppError("The rider already has the bag", "ALREADY_PICKED_UP", 409);
   return updated;
 }

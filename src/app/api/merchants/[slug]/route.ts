@@ -1,6 +1,7 @@
 import { api, json, options, AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
-import { presentItem, shopLive } from "@/lib/merchants";
+import { presentItem, shopCardPayments, shopLive } from "@/lib/merchants";
+import { shopHours, shopOpenAt } from "@/lib/shopHours";
 
 export const OPTIONS = () => options();
 
@@ -20,7 +21,10 @@ export const GET = api(async (_req, ctx) => {
       name: merchant.name,
       slug: merchant.slug,
       address: merchant.address,
-      deliveryPayer: merchant.deliveryPayer,
+      phone: merchant.phone,
+      hours: shopHours(merchant),
+      openNow: shopOpenAt(shopHours(merchant)),
+      cardPayments: await shopCardPayments(),
       items: items.map(presentItem),
     },
   });
