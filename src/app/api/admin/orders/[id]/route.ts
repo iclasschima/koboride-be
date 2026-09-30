@@ -18,8 +18,25 @@ export const GET = api(async (req, ctx) => {
       orderBy: { createdAt: "desc" },
     }),
   ]);
+  const trip = presentTrip(order);
+  if (order.status === "in_progress" && order.riderId) {
+    const rider = await prisma.rider.findUnique({
+      where: { id: order.riderId },
+      select: { lastLat: true, lastLng: true, lastLocationAt: true },
+    });
+    if (
+      rider?.lastLat != null &&
+      rider.lastLng != null &&
+      rider.lastLocationAt &&
+      (!order.riderLocationAt || rider.lastLocationAt > order.riderLocationAt)
+    ) {
+      trip.riderLat = rider.lastLat;
+      trip.riderLng = rider.lastLng;
+      trip.riderLocationAt = rider.lastLocationAt.toISOString();
+    }
+  }
   return json({
-    trip: { ...presentTrip(order), releases: releases.map(presentRelease) },
+    trip: { ...trip, releases: releases.map(presentRelease) },
   });
 });
 

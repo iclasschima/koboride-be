@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 import {
   notifyAdminOrderStatus,
   notifyCustomerPaymentRefunded,
+  notifyMerchantOrderProgress,
   notifyOrderAccepted,
   notifyOrderDelivered,
   notifySearchingRider,
@@ -91,6 +92,7 @@ export const POST = api(async (req, ctx) => {
   }
   if (order.status !== updated.status || order.riderPhase !== updated.riderPhase) {
     await notifyAdminOrderStatus(updated);
+    await notifyMerchantOrderProgress(order, updated);
   }
   if (
     updated.status === "cancelled" &&

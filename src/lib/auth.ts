@@ -6,7 +6,7 @@ import { phoneLookupKeys, preferredPhone } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 import type { Rider } from "@prisma/client";
 
-export const ROLES = ["customer", "rider", "admin", "agent"] as const;
+export const ROLES = ["customer", "rider", "admin", "agent", "merchant"] as const;
 export type Role = (typeof ROLES)[number];
 
 export type AuthUser = {
@@ -157,6 +157,51 @@ export async function signInAgent(phoneInput: string) {
     role: "agent" as const,
     user: { id: agent.id, phone: agent.phone, name: agent.name },
   };
+}
+
+export async function signInMerchant(phoneInput: string) {
+  const keys = phoneLookupKeys(phoneInput);
+  const phone = preferredPhone(phoneInput);
+  let merchant = await prisma.merchant.findFirst({ where: { phone: { in: keys } } });
+  if (merchant && merchant.phone !== phone) {
+    merchant = await prisma.merchant.update({ where: { id: merchant.id }, data: { phone } });
+  }
+  if (!merchant) {
+    const tail = phone.replace(/\D/g, "").slice(-6);
+    merchant = await prisma.merchant.create({
+      data: {
+        phone,
+        name: "My shop",
+        slug: `shop-${tail}-${Date.now().toString(36)}`,
+      },
+    });
+  }
+  if (!merchant.active) {
+    throw new AppError(
+      "This shop is inactive. Contact the KoboRide team.",
+      "ACCOUNT_INACTIVE",
+      403,
+    );
+  }
+  const token = signToken({ sub: merchant.id, role: "merchant" });
+  return {
+    token,
+    role: "merchant" as const,
+    user: { id: merchant.id, phone: merchant.phone, name: merchant.name },
+  };
+}
+
+export async function requireMerchant(req: Request) {
+  const user = requireUser(req, ["merchant"]);
+  const merchant = await prisma.merchant.findUnique({ where: { id: user.sub } });
+  if (!merchant || !merchant.active) {
+    throw new AppError(
+      "This shop is inactive. Contact the KoboRide team.",
+      "ACCOUNT_INACTIVE",
+      403,
+    );
+  }
+  return { user, merchant };
 }
 
 export async function requireAgent(req: Request) {

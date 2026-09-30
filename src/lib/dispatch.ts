@@ -26,6 +26,8 @@ export const SYSTEM_CANCEL_REASONS = [
 const orderInclude = {
   rider: { select: { id: true, name: true, phone: true, photoUrl: true } },
   customer: { select: { id: true, name: true, phone: true } },
+  merchant: { select: { id: true, name: true, slug: true } },
+  lines: { orderBy: { id: "asc" as const } },
 } satisfies Prisma.OrderInclude;
 
 type OrderRow = Prisma.OrderGetPayload<{ include: typeof orderInclude }>;
@@ -35,11 +37,14 @@ export function isActivelyDispatching(
     status: string;
     riderId: string | null;
     scheduledFor: Date | null;
+    merchantId?: string | null;
+    readyAt?: Date | null;
   },
   now = new Date(),
 ): boolean {
   if (order.status !== "dispatching" || order.riderId) return false;
   if (order.scheduledFor && order.scheduledFor.getTime() > now.getTime()) return false;
+  if (order.merchantId && !order.readyAt) return false;
   return true;
 }
 
@@ -52,13 +57,16 @@ export function searchingSince(
   order: {
     createdAt: Date;
     scheduledFor: Date | null;
+    readyAt?: Date | null;
   },
   now = new Date(),
 ): Date {
+  let since = order.createdAt;
   if (order.scheduledFor && order.scheduledFor.getTime() <= now.getTime()) {
-    return order.scheduledFor;
+    since = order.scheduledFor;
   }
-  return order.createdAt;
+  if (order.readyAt && order.readyAt.getTime() > since.getTime()) since = order.readyAt;
+  return since;
 }
 
 export function isScheduledPending(
@@ -168,6 +176,7 @@ async function autoCancelStaleSearching(now = new Date()): Promise<number> {
   let cancelled = 0;
   for (const order of candidates) {
     if (isScheduledPending(order, now)) continue;
+    if (order.merchantId && !order.readyAt) continue;
     const waited = now.getTime() - searchingSince(order, now).getTime();
     const empty =
       waited >= config.emptyZoneCancelAfterMs &&
@@ -327,6 +336,8 @@ export function dispatchPresentation(
     status: string;
     riderId: string | null;
     retentionOfferShown?: boolean;
+    merchantId?: string | null;
+    readyAt?: Date | null;
   },
   now = new Date(),
   settings: PlatformSettings = cachedPlatformSettings(),
@@ -348,6 +359,11 @@ export function dispatchPresentation(
   };
 }
 
+/** A link order stays out of the rider pool until the shop marks the bag ready. */
+function shopReadyWhere(): Prisma.OrderWhereInput {
+  return { OR: [{ merchantId: null }, { readyAt: { not: null } }] };
+}
+
 export function availableJobsWhere(
   zoneSlug: string,
   now = new Date(),
@@ -356,7 +372,10 @@ export function availableJobsWhere(
     status: "dispatching",
     riderId: null,
     zoneSlug,
-    OR: [{ scheduledFor: null }, { scheduledFor: { lte: now } }],
+    AND: [
+      { OR: [{ scheduledFor: null }, { scheduledFor: { lte: now } }] },
+      shopReadyWhere(),
+    ],
   };
 }
 
@@ -370,6 +389,9 @@ export function acceptDispatchingWhere(
     status: "dispatching",
     riderId: null,
     zoneSlug,
-    OR: [{ scheduledFor: null }, { scheduledFor: { lte: now } }],
+    AND: [
+      { OR: [{ scheduledFor: null }, { scheduledFor: { lte: now } }] },
+      shopReadyWhere(),
+    ],
   };
 }

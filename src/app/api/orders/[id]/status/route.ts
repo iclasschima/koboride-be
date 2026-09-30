@@ -14,7 +14,11 @@ import { prisma } from "@/lib/prisma";
 import { askSenderToRevealPin, textDeliveryPinToReceiver } from "@/lib/deliveryPinSms";
 import { noteRiderFirstTen } from "@/lib/onboarding";
 import { writeConfirmedLedgerNow } from "@/lib/ledger";
-import { notifyAdminOrderStatus, notifyOrderDelivered } from "@/lib/push";
+import {
+  notifyAdminOrderStatus,
+  notifyMerchantOrderProgress,
+  notifyOrderDelivered,
+} from "@/lib/push";
 
 export const OPTIONS = () => options();
 
@@ -135,6 +139,7 @@ export const POST = api(async (req, ctx) => {
   }
   if (riderPhase !== order.riderPhase) {
     await notifyAdminOrderStatus(updated);
+    await notifyMerchantOrderProgress(order, updated);
   }
   return json({ trip: presentRiderTrip(updated) });
 });

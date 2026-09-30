@@ -3,7 +3,7 @@ import { api, json, options, AppError } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
 import { normalizePhone } from "@/lib/phone";
 import { verifyOtp } from "@/lib/otp";
-import { signInAgent, signInCustomer } from "@/lib/auth";
+import { signInAgent, signInCustomer, signInMerchant } from "@/lib/auth";
 
 export const OPTIONS = () => options();
 
@@ -13,7 +13,7 @@ export const POST = api(async (req) => {
       phone: z.string().min(1),
       code: z.string().min(1),
       name: z.string().min(1).max(80).optional(),
-      role: z.enum(["customer", "agent"]).optional(),
+      role: z.enum(["customer", "agent", "merchant"]).optional(),
     }),
     await readJson(req),
   );
@@ -23,5 +23,6 @@ export const POST = api(async (req) => {
   }
   await verifyOtp(phone, body.code);
   if (body.role === "agent") return json(await signInAgent(phone));
+  if (body.role === "merchant") return json(await signInMerchant(phone));
   return json(await signInCustomer(phone, body.name));
 });

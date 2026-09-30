@@ -16,13 +16,18 @@ export const POST = api(async (req, ctx) => {
     throw new AppError("Location is required", "VALIDATION_ERROR", 400);
   }
 
+  const at = new Date();
   const updated = await prisma.order.updateMany({
     where: { id, riderId: rider.id, status: "in_progress" },
-    data: { riderLat: lat, riderLng: lng, riderLocationAt: new Date() },
+    data: { riderLat: lat, riderLng: lng, riderLocationAt: at },
   });
   if (updated.count === 0) {
     throw new AppError("This job is not in progress", "INVALID_STATUS", 409);
   }
+  await prisma.rider.update({
+    where: { id: rider.id },
+    data: { lastLat: lat, lastLng: lng, lastLocationAt: at },
+  });
 
   return json({ ok: true });
 });

@@ -8,7 +8,7 @@
     "start": "next start -p ${PORT:-3001}",
     "postinstall": "node scripts/prisma-generate.mjs",
     "lint": "next lint",
-    "test": "tsx --test src/lib/payoutMath.test.ts src/lib/agentEarnings.test.ts src/lib/locationOffers.test.ts",
+    "test": "tsx --test src/lib/payoutMath.test.ts src/lib/agentEarnings.test.ts src/lib/locationOffers.test.ts src/lib/merchantPush.test.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",

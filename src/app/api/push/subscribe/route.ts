@@ -17,7 +17,7 @@ const bodySchema = z.object({
 });
 
 export const POST = api(async (req) => {
-  const user = requireUser(req, ["customer", "rider", "admin"]);
+  const user = requireUser(req, ["customer", "rider", "admin", "merchant"]);
   const body = parseBody(bodySchema, await readJson(req));
   const role = user.role as PushRole;
 

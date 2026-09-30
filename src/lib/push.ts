@@ -2,6 +2,7 @@ import webpush from "web-push";
 import type { PushRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { config } from "@/lib/config";
+import { merchantProgressPush, type MerchantProgressOrder } from "@/lib/merchantPush";
 
 export type PushPayload = {
   title: string;
@@ -198,6 +199,30 @@ export async function notifyDeliveryPinRequested(
   });
 }
 
+export async function notifyMerchantNewOrder(order: {
+  id: string;
+  merchantId: string | null;
+  receiverName: string | null;
+  dropoff: string;
+  readyAt: Date | null;
+}): Promise<void> {
+  if (!order.merchantId) return;
+  await sendPushToUser(order.merchantId, "merchant", {
+    title: order.readyAt ? "New order" : "New order · pack the bag",
+    body: `${order.receiverName?.trim() || "A customer"} → ${order.dropoff}`,
+    url: `/merchant/orders/${order.id}`,
+  });
+}
+
+export async function notifyMerchantOrderProgress(
+  before: { status: string; riderPhase: string | null },
+  after: MerchantProgressOrder & { merchantId: string | null },
+): Promise<void> {
+  if (!after.merchantId) return;
+  const payload = merchantProgressPush(before, after);
+  if (payload) await sendPushToUser(after.merchantId, "merchant", payload);
+}
+
 export async function sendPushToAdmins(payload: PushPayload): Promise<void> {
   await runPush(async () => {
     const rows = await prisma.pushSubscription.findMany({ where: { role: "admin" } });
@@ -230,10 +255,29 @@ export async function notifyAdminNewOrder(order: {
   id: string;
   pickup: string;
   dropoff: string;
+  readyAt?: Date | null;
+  merchant?: { name: string } | null;
+}): Promise<void> {
+  const shop = order.merchant?.name;
+  await sendPushToAdmins({
+    title: shop
+      ? order.readyAt
+        ? `New shop order · ${shop}`
+        : `New shop order · ${shop} (packing)`
+      : "New order",
+    body: `${order.pickup} → ${order.dropoff}`,
+    url: `/admin/orders/${order.id}`,
+  });
+}
+
+export async function notifyAdminBagReady(order: {
+  id: string;
+  dropoff: string;
+  merchant?: { name: string } | null;
 }): Promise<void> {
   await sendPushToAdmins({
-    title: "New order",
-    body: `${order.pickup} → ${order.dropoff}`,
+    title: `Bag ready · ${order.merchant?.name ?? "Shop"}`,
+    body: `Finding a rider → ${order.dropoff}`,
     url: `/admin/orders/${order.id}`,
   });
 }
@@ -273,5 +317,13 @@ export async function notifyAdminNewUser(user: {
     title: rider ? "New rider" : "New customer",
     body: user.name?.trim() || user.phone,
     url: rider ? "/admin/riders" : "/admin/users",
+  });
+}
+
+export async function notifyAdminShopPending(shop: { id: string; name: string }): Promise<void> {
+  await sendPushToAdmins({
+    title: "Shop waiting for approval",
+    body: shop.name,
+    url: `/admin/merchants/${shop.id}`,
   });
 }

@@ -6,6 +6,7 @@ import { config } from "@/lib/config";
 import { quoteRoute } from "@/lib/fare";
 import { assertOfferUsesAvailable } from "@/lib/locationOffers";
 import { osrmRoute } from "@/lib/osrm";
+import { DEFAULT_SHOP_PACKAGE } from "@/lib/packages";
 import { preferredPhone } from "@/lib/phone";
 import { getMaxActiveOrders } from "@/lib/settings";
 import { zoneName } from "@/lib/zones";
@@ -27,6 +28,8 @@ import { onlinePaymentsEnabled } from "@/lib/payoutFlags";
 export const orderInclude = {
   rider: { select: { id: true, name: true, phone: true, photoUrl: true } },
   customer: { select: { id: true, name: true, phone: true } },
+  merchant: { select: { id: true, name: true, slug: true } },
+  lines: { orderBy: { id: "asc" as const } },
 } satisfies Prisma.OrderInclude;
 
 export type OrderRow = Prisma.OrderGetPayload<{ include: typeof orderInclude }>;
@@ -166,6 +169,17 @@ function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
     zoneSlug: order.zoneSlug,
     zoneName: zoneName(order.zoneSlug),
     feeNgn: order.feeNgn,
+    goodsNgn: order.goodsNgn,
+    packageType: order.packageType,
+    merchantId: order.merchantId,
+    merchantName: order.merchant?.name ?? null,
+    readyAt: order.readyAt?.toISOString() ?? null,
+    lines: order.lines.map((line) => ({
+      id: line.id,
+      name: line.name,
+      qty: line.qty,
+      priceNgn: line.priceNgn,
+    })),
     status: order.status,
     riderPhase: order.riderPhase,
     riderId: order.riderId,
@@ -174,6 +188,7 @@ function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
     riderPhotoUrl: order.rider?.photoUrl ?? null,
     riderLat: order.riderLat,
     riderLng: order.riderLng,
+    riderLocationAt: order.riderLocationAt?.toISOString() ?? null,
     customerName: order.customer?.name ?? null,
     customerPhone: order.customer?.phone ?? null,
     payoutNgn: order.payoutNgn,
@@ -214,8 +229,11 @@ function shouldHideCustomerDeliveryPin(order: OrderRow): boolean {
   return order.status !== "in_progress";
 }
 
+/** Riders see the kind of shop bag, never the items or the customer's note to the shop. */
 export function presentRiderTrip(order: OrderRow) {
-  return toTrip(order, !order.deliveryPinRevealedAt);
+  const trip = toTrip(order, !order.deliveryPinRevealedAt);
+  if (!order.merchantId) return trip;
+  return { ...trip, notes: order.packageType ?? DEFAULT_SHOP_PACKAGE, lines: [], goodsNgn: 0 };
 }
 
 export function nextPhase(phase: RiderPhase | null): RiderPhase | null {

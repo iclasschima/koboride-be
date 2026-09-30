@@ -80,6 +80,10 @@ model Rider {
   nextOfKinRelationship String?
   approved     Boolean           @default(false)
   availability RiderAvailability @default(OFFLINE)
+  /** Last GPS fix from the rider app, sent while online or on a job. Shown on the admin live map. */
+  lastLat        Float?
+  lastLng        Float?
+  lastLocationAt DateTime?
   /** Dedicated dispatch pool. One zone per rider — never cross-dispatch. */
   zoneSlug     String            @default("YAB")
   onboardedByAgentId String?
@@ -133,6 +137,39 @@ model Agent {
   createdAt DateTime @default(now())
   riders    Rider[]
   payouts   AgentPayout[]
+}
+
+/** A shop with one pickup. Customers order from its public link, or the shop sends a bag. */
+model Merchant {
+  id        String     @id @default(cuid())
+  phone     String     @unique
+  name      String
+  slug      String     @unique
+  address   String     @default("")
+  lat       Float?
+  lng       Float?
+  active    Boolean    @default(true)
+  /// Set by an admin. Until then the shop can set up its menu but cannot send bags or take link orders.
+  approvedAt DateTime?
+  /// Who pays delivery on menu-link orders: the shop at pickup, or the customer at drop-off.
+  deliveryPayer CustomerRole @default(receiver)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  items     MenuItem[]
+  orders    Order[]
+}
+
+model MenuItem {
+  id         String   @id @default(cuid())
+  merchantId String
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  name       String
+  priceNgn   Int
+  available  Boolean  @default(true)
+  sort       Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([merchantId, available])
 }
 
 /** One row. Amounts are kobo. Admin edits these; earnings code only reads them. */
@@ -306,6 +343,7 @@ enum PushRole {
   customer
   rider
   admin
+  merchant
 }
 
 model PushSubscription {
@@ -388,6 +426,17 @@ model Order {
   /** Cancel-intercept retention offer has been shown (or applied). */
   retentionOfferShown Boolean @default(false)
 
+  /** Shop this bag belongs to. Null on a normal customer errand. */
+  merchantId     String?
+  merchant       Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  /** Menu total the customer pays the shop directly, in naira. Riders never collect it. */
+  goodsNgn       Int       @default(0)
+  /// Shop orders: the kind of bag (e.g. "Food pack"). Riders see this instead of the items.
+  packageType    String?
+  /** Null while a link order is still being packed. Shop-sent bags are ready immediately. */
+  readyAt        DateTime?
+  lines          OrderLine[]
+
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   completedAt DateTime?
@@ -398,6 +447,18 @@ model Order {
 
   @@index([status, scheduledFor])
   @@index([zoneSlug, status, scheduledFor])
+  @@index([merchantId, createdAt])
+}
+
+model OrderLine {
+  id       String @id @default(cuid())
+  orderId  String
+  order    Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  name     String
+  qty      Int
+  priceNgn Int
+
+  @@index([orderId])
 }
 
 /** Audit trail for order lifecycle (reschedule, auto-cancel, schedule activate, …). */
