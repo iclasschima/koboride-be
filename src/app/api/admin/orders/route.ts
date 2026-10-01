@@ -48,7 +48,7 @@ export const POST = api(async (req) => {
     await readJson(req),
   );
 
-  const customer = await findOrCreateCustomer(body.customerPhone, body.customerName);
+  const customer = await findOrCreateCustomer(body.customerPhone, body.customerName, { source: "admin" });
 
   const contacts = resolveCustomerContacts({
     customerRole: body.customerRole,

@@ -1,7 +1,7 @@
 import { api, json, options, AppError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { presentItem, shopCardPayments, shopLive } from "@/lib/merchants";
-import { shopHours, shopOpenAt } from "@/lib/shopHours";
+import { shopHours, shopTakingOrders } from "@/lib/shopHours";
 
 export const OPTIONS = () => options();
 
@@ -24,7 +24,8 @@ export const GET = api(async (_req, ctx) => {
       phone: merchant.callPhone ?? merchant.phone,
       whatsapp: merchant.whatsappPhone,
       hours: shopHours(merchant),
-      openNow: shopOpenAt(shopHours(merchant)),
+      openMode: merchant.openMode,
+      openNow: shopTakingOrders(merchant),
       cardPayments: await shopCardPayments(),
       maxBags: merchant.maxBags,
       items: items.map(presentItem),

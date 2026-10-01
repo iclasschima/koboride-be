@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatClock, shopOpenAt } from "./shopHours";
+import { formatClock, shopOpenAt, shopTakingOrders } from "./shopHours";
 
 /** A UTC instant for a Lagos wall-clock time (Lagos is UTC+1 all year). */
 const lagos = (clock: string) => {
@@ -30,6 +30,14 @@ test("hours that close after midnight stay open overnight", () => {
 
 test("uses Lagos time, not UTC", () => {
   assert.equal(shopOpenAt({ opensAt: "09:00", closesAt: "10:00" }, new Date(Date.UTC(2026, 8, 30, 8, 30))), true);
+});
+
+test("the shop's open or closed switch ignores the hours", () => {
+  const shop = { opensAt: "09:00", closesAt: "21:00" };
+  assert.equal(shopTakingOrders({ ...shop, openMode: "hours" }, lagos("23:00")), false);
+  assert.equal(shopTakingOrders({ ...shop, openMode: "open" }, lagos("23:00")), true);
+  assert.equal(shopTakingOrders({ ...shop, openMode: "closed" }, lagos("12:00")), false);
+  assert.equal(shopTakingOrders({ opensAt: null, closesAt: null, openMode: "closed" }, lagos("12:00")), false);
 });
 
 test("formats clock times for people", () => {

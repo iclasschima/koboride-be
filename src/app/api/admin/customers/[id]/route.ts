@@ -3,6 +3,7 @@ import { api, json, options, AppError } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
 import { config } from "@/lib/config";
+import { presentOrigin, sourceMerchantInclude } from "@/lib/customers";
 import { prisma } from "@/lib/prisma";
 import { countActiveOrders, countRecentCancels, orderInclude, presentTrip } from "@/lib/orders";
 import { phoneLookupKeys } from "@/lib/phone";
@@ -18,6 +19,7 @@ export const GET = api(async (req, ctx) => {
   const customer = await prisma.customer.findUnique({
     where: { id },
     include: {
+      ...sourceMerchantInclude,
       _count: { select: { orders: true } },
       orders: {
         include: orderInclude,
@@ -49,6 +51,7 @@ export const GET = api(async (req, ctx) => {
       phone: customer.phone,
       active: customer.active,
       createdAt: customer.createdAt.toISOString(),
+      origin: presentOrigin(customer),
       ordersCount: customer._count.orders,
       lastOrderAt: last?.createdAt.toISOString() ?? null,
       lastOrderStatus: last?.status ?? null,

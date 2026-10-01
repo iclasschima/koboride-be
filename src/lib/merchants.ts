@@ -3,14 +3,14 @@ import type { Customer, CustomerRole, Merchant, MenuItem, OrderLine, PaymentMeth
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { quoteRoute } from "@/lib/fare";
-import { findOrCreateCustomer } from "@/lib/customers";
+import { attributionSchema, findOrCreateCustomer } from "@/lib/customers";
 import { assertCustomerActive } from "@/lib/auth";
 import { cancelOrder, composeOrderNotes, orderInclude, splitOrderNotes, type OrderRow } from "@/lib/orders";
 import { assertOfferUsesAvailable } from "@/lib/locationOffers";
 import { normalizePhone, phoneLookupKeys } from "@/lib/phone";
 import { DEFAULT_SHOP_PACKAGE, type PackageType } from "@/lib/packages";
-import { shopCardPaid, shopCardTotalNgn, shopPayoutNgn } from "@/lib/shopMoney";
-import { CLOCK, formatClock, shopHours, shopOpenAt } from "@/lib/shopHours";
+import { paystackFeeNgn, shopCardPaid, shopCardTotalNgn, shopPayoutNgn } from "@/lib/shopMoney";
+import { CLOCK, formatClock, shopHours, shopTakingOrders } from "@/lib/shopHours";
 import { onlinePaymentsEnabled } from "@/lib/payoutFlags";
 import { cachedBanks, lookupAccountName } from "@/lib/bankVerify";
 import { decryptField, encryptField, maskSecret } from "@/lib/fieldCrypto";
@@ -71,6 +71,8 @@ export function presentMerchant(merchant: Merchant, items: MenuItem[] = []) {
     approved: merchant.approvedAt != null,
     active: merchant.active,
     hours: shopHours(merchant),
+    openMode: merchant.openMode,
+    openNow: shopTakingOrders(merchant),
     callPhone: merchant.callPhone,
     whatsappPhone: merchant.whatsappPhone,
     maxBags: merchant.maxBags,
@@ -143,6 +145,7 @@ export const shopPatchSchema = z.object({
   callPhone: z.string().max(20).nullable().optional(),
   whatsappPhone: z.string().max(20).nullable().optional(),
   maxBags: z.number().int().min(1).max(10).optional(),
+  openMode: z.enum(["hours", "open", "closed"]).optional(),
   hours: z
     .object({
       opensAt: z.string().regex(CLOCK, "Use a time like 09:00"),
@@ -155,14 +158,15 @@ export const shopPatchSchema = z.object({
 
 /** Link orders only. The shop can still send its own bags when closed. */
 function assertShopOpen(merchant: Merchant, at: Date = new Date()): void {
+  if (shopTakingOrders(merchant, at)) return;
   const hours = shopHours(merchant);
-  if (hours && !shopOpenAt(hours, at)) {
-    throw new AppError(
-      `${merchant.name} is closed now. Orders open at ${formatClock(hours.opensAt)}.`,
-      "SHOP_CLOSED",
-      409,
-    );
-  }
+  throw new AppError(
+    merchant.openMode === "hours" && hours
+      ? `${merchant.name} is closed now. Orders open at ${formatClock(hours.opensAt)}.`
+      : `${merchant.name} is closed now.`,
+    "SHOP_CLOSED",
+    409,
+  );
 }
 
 /** Undefined leaves the number as it is; empty clears it. */
@@ -198,6 +202,7 @@ export async function updateShop(
       callPhone: optionalPhone(body.callPhone),
       whatsappPhone: optionalPhone(body.whatsappPhone),
       maxBags: body.maxBags,
+      openMode: body.openMode,
       opensAt: body.hours === undefined ? undefined : (body.hours?.opensAt ?? null),
       closesAt: body.hours === undefined ? undefined : (body.hours?.closesAt ?? null),
       ...extra,
@@ -480,6 +485,7 @@ export const shopOrderSchema = z.object({
     )
     .min(1)
     .max(80),
+  attribution: attributionSchema,
 });
 
 function assertShopCanSend(merchant: Merchant): asserts merchant is Merchant & { lat: number; lng: number } {
@@ -539,7 +545,9 @@ export async function startShopCardPayment(
     paymentMethod: "paystack",
     customerId: customer.id,
   });
-  const totalNgn = shopCardTotalNgn(goodsNgn, quote.feeNgn, "receiver");
+  const cardNgn = shopCardTotalNgn(goodsNgn, quote.feeNgn, "receiver");
+  const paymentFeeNgn = paystackFeeNgn(cardNgn);
+  const totalNgn = cardNgn + paymentFeeNgn;
   const email = paystackEmail(customer.phone);
   const started = await initializePaystack({
     email,
@@ -554,6 +562,7 @@ export async function startShopCardPayment(
     email,
     amountKobo: nairaToKobo(totalNgn),
     feeNgn: totalNgn,
+    paymentFeeNgn,
   };
 }
 
@@ -607,7 +616,7 @@ export async function createMerchantOrder(input: {
 
   const customer = input.customerId
     ? await prisma.customer.findUnique({ where: { id: input.customerId } })
-    : await findOrCreateCustomer(receiverPhone, receiverName);
+    : await findOrCreateCustomer(receiverPhone, receiverName, { source: "shop_bag", merchantId: merchant.id });
   if (!customer) throw new AppError("Customer not found", "NOT_FOUND", 404);
   assertCustomerActive(customer);
 
@@ -621,13 +630,12 @@ export async function createMerchantOrder(input: {
     paymentMethod,
     customerId: customer.id,
   });
-  const payment =
-    paymentMethod === "paystack"
-      ? await verifyShopCardPayment(
-          input.paystackReference,
-          shopCardTotalNgn(goodsNgn, quote.feeNgn, input.farePayer),
-        )
-      : null;
+  let payment = null;
+  if (paymentMethod === "paystack") {
+    const cardNgn = shopCardTotalNgn(goodsNgn, quote.feeNgn, input.farePayer);
+    const paymentFeeNgn = paystackFeeNgn(cardNgn);
+    payment = { ...(await verifyShopCardPayment(input.paystackReference, cardNgn + paymentFeeNgn)), paymentFeeNgn };
+  }
 
   const now = new Date();
   const scheduledFor =

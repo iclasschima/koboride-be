@@ -24,7 +24,7 @@ export const POST = api(async (req, ctx) => {
   if (body.paymentMethod !== "paystack") {
     throw new AppError("Pay online to order from this shop", "CARD_REQUIRED", 400);
   }
-  const { customer, signedIn } = await shopCheckoutCustomer(req, body.receiverPhone, body.receiverName);
+  const { customer, signedIn } = await shopCheckoutCustomer(req, body, merchant.id);
   const earlierOrders = await prisma.order.count({ where: { customerId: customer.id } });
   const order = await createMerchantOrder({
     merchant,

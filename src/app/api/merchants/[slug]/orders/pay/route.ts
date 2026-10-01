@@ -14,6 +14,6 @@ export const POST = api(async (req, ctx) => {
     throw new AppError("This shop is not available", "NOT_FOUND", 404);
   }
   const body = parseBody(shopOrderSchema, await readJson(req));
-  const { customer } = await shopCheckoutCustomer(req, body.receiverPhone, body.receiverName);
+  const { customer } = await shopCheckoutCustomer(req, body, merchant.id);
   return json(await startShopCardPayment(merchant, body, customer));
 });

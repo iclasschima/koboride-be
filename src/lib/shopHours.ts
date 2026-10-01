@@ -1,3 +1,4 @@
+import type { ShopOpenMode } from "@prisma/client";
 import { lagosParts } from "@/lib/payoutMath";
 
 export const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -21,6 +22,15 @@ export function shopOpenAt(hours: ShopHours | null, at: Date = new Date()): bool
   const opens = minutes(hours.opensAt);
   const closes = minutes(hours.closesAt);
   return opens < closes ? now >= opens && now < closes : now >= opens || now < closes;
+}
+
+/** The shop's own open or closed switch wins over its hours. */
+export function shopTakingOrders(
+  merchant: { openMode: ShopOpenMode; opensAt: string | null; closesAt: string | null },
+  at: Date = new Date(),
+): boolean {
+  if (merchant.openMode !== "hours") return merchant.openMode === "open";
+  return shopOpenAt(shopHours(merchant), at);
 }
 
 /** "21:30" → "9:30 pm" */

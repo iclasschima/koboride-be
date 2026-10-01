@@ -19,7 +19,7 @@ export const GET = api(async (req) => {
     prisma.merchant.findMany({
       orderBy: { createdAt: "desc" },
       include: {
-        _count: { select: { orders: true, items: true } },
+        _count: { select: { orders: true, items: true, customers: true } },
         orders: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
       },
     }),
@@ -44,6 +44,7 @@ export const GET = api(async (req) => {
       createdAt: merchant.createdAt.toISOString(),
       approvedAt: merchant.approvedAt?.toISOString() ?? null,
       itemsCount: merchant._count.items,
+      customersCount: merchant._count.customers,
       ordersCount: orderCount.get(merchant.id) ?? 0,
       deliveredCount: done.get(merchant.id)?._count._all ?? 0,
       deliveryNgn: done.get(merchant.id)?._sum.feeNgn ?? 0,

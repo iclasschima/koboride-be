@@ -57,14 +57,39 @@ enum OnboardingStatus {
   REJECTED
 }
 
+/// How a customer first reached KoboRide.
+enum CustomerSource {
+  /// Signed in on the KoboRide site with a code.
+  app
+  /// Ordered from a shop's menu link.
+  shop_link
+  /// A shop sent them a bag.
+  shop_bag
+  /// Ops booked an order for them.
+  admin
+}
+
 model Customer {
   id        String   @id @default(cuid())
   phone     String   @unique
   name      String?
   active    Boolean  @default(true)
   cancelLimitResetAt DateTime?
+  /// Set once, when the account is created. Null for accounts from before this was recorded.
+  source           CustomerSource?
+  /// The shop that brought them, for shop_link and shop_bag.
+  sourceMerchantId String?
+  sourceMerchant   Merchant? @relation("CustomerSourceMerchant", fields: [sourceMerchantId], references: [id], onDelete: SetNull)
+  /// First link tag seen in the browser before sign-up: ?ref=, or utm_source / utm_medium / utm_campaign.
+  sourceRef        String?
+  /// First KoboRide page the browser opened, e.g. /m/tyme-out.
+  sourceLanding    String?
+  /// Site that linked to that first page, e.g. instagram.com.
+  sourceReferrer   String?
   createdAt DateTime @default(now())
   orders    Order[]
+
+  @@index([sourceMerchantId])
 }
 
 model Rider {
@@ -139,6 +164,13 @@ model Agent {
   payouts   AgentPayout[]
 }
 
+/// Whether the menu link takes orders: by the order hours, or always open / closed until changed.
+enum ShopOpenMode {
+  hours
+  open
+  closed
+}
+
 /** A shop with one pickup. Customers order from its public link, or the shop sends a bag. */
 model Merchant {
   id        String     @id @default(cuid())
@@ -156,6 +188,8 @@ model Merchant {
   /// Menu-link order hours as "HH:MM" Lagos time. Both null means always open; closing before opening runs past midnight.
   opensAt  String?
   closesAt String?
+  /// Set by the shop. open and closed ignore the hours until the shop switches back.
+  openMode ShopOpenMode @default(hours)
   /// Numbers shown on the shop link. Calls fall back to the sign-in phone; WhatsApp is hidden when empty.
   callPhone     String?
   whatsappPhone String?
@@ -172,6 +206,7 @@ model Merchant {
   updatedAt DateTime   @updatedAt
   items     MenuItem[]
   orders    Order[]
+  customers Customer[] @relation("CustomerSourceMerchant")
 }
 
 model MenuItem {
@@ -413,6 +448,8 @@ model Order {
   paymentStatus PaymentStatus @default(unpaid)
   paystackReference String? @unique
   paystackRefundId String?
+  /** Paystack's fee, added on top of what the customer's card paid for. */
+  paymentFeeNgn Int @default(0)
   paidAt      DateTime?
   refundedAt  DateTime?
   /** Road distance pickup → dropoff, stored at quote time (km). */

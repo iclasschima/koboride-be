@@ -12,7 +12,7 @@ export async function findShop(id: string | undefined) {
 
 export async function presentAdminShop(id: string | undefined) {
   const merchant = await findShop(id);
-  const [items, orders, settlement] = await Promise.all([
+  const [items, orders, settlement, customersCount] = await Promise.all([
     listShopItems(merchant.id),
     prisma.order.findMany({
       where: { merchantId: merchant.id },
@@ -21,6 +21,7 @@ export async function presentAdminShop(id: string | undefined) {
       take: 200,
     }),
     shopSettlement(merchant.id),
+    prisma.customer.count({ where: { sourceMerchantId: merchant.id } }),
   ]);
   const completed = orders.filter((order) => order.status === "completed");
   return {
@@ -29,6 +30,8 @@ export async function presentAdminShop(id: string | undefined) {
       createdAt: merchant.createdAt.toISOString(),
       approvedAt: merchant.approvedAt?.toISOString() ?? null,
       ordersCount: orders.length,
+      /** Customers whose account started with this shop's link or bag. */
+      customersCount,
       liveCount: orders.filter((order) => order.status === "dispatching" || order.status === "in_progress").length,
       deliveredCount: completed.length,
       deliveryNgn: completed.reduce((sum, order) => sum + order.feeNgn, 0),

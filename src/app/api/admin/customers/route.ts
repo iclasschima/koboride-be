@@ -1,7 +1,7 @@
 import { api, json, options } from "@/lib/errors";
 import { requireUser } from "@/lib/auth";
 import { config } from "@/lib/config";
-import { reconcileDuplicateCustomers } from "@/lib/customers";
+import { presentOrigin, reconcileDuplicateCustomers, sourceMerchantInclude } from "@/lib/customers";
 import { cancelWindowStart } from "@/lib/orders";
 import { samePhone } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
@@ -16,6 +16,7 @@ export const GET = api(async (req) => {
     prisma.customer.findMany({
       orderBy: { createdAt: "desc" },
       include: {
+        ...sourceMerchantInclude,
         _count: { select: { orders: true } },
         orders: {
           orderBy: { createdAt: "desc" },
@@ -62,6 +63,7 @@ export const GET = api(async (req) => {
         phone: customer.phone,
         active: customer.active,
         createdAt: customer.createdAt.toISOString(),
+        origin: presentOrigin(customer),
         ordersCount: customer._count.orders,
         lastOrderAt: last?.createdAt.toISOString() ?? null,
         lastOrderStatus: last?.status ?? null,
