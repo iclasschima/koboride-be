@@ -1,7 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { orderInclude, presentTrip } from "@/lib/orders";
-import { adminShopBank, listShopItems, presentMerchant, shopSettlement } from "@/lib/merchants";
+import { adminShopBank, listShopItems, presentMerchant } from "@/lib/merchants";
+import { shopPayoutNgn } from "@/lib/shopMoney";
+import { paystackConfigured } from "@/lib/paystack";
+import { presentShopPayout, shopLedger, shopSettlement } from "@/lib/shopPayouts";
+
+const LAGOS_OFFSET_MS = 60 * 60 * 1000;
+const SHOP_ORDERS_LIMIT = 500;
 
 export async function findShop(id: string | undefined) {
   if (!id) throw new AppError("Missing shop id", "VALIDATION_ERROR", 400);
@@ -12,16 +18,15 @@ export async function findShop(id: string | undefined) {
 
 export async function presentAdminShop(id: string | undefined) {
   const merchant = await findShop(id);
-  const [items, orders, settlement, customersCount] = await Promise.all([
+  const [items, orders, settlement, customersCount, payouts] = await Promise.all([
     listShopItems(merchant.id),
     prisma.order.findMany({
       where: { merchantId: merchant.id },
-      include: orderInclude,
-      orderBy: { createdAt: "desc" },
-      take: 200,
+      select: { status: true, feeNgn: true, farePayer: true, goodsNgn: true },
     }),
     shopSettlement(merchant.id),
     prisma.customer.count({ where: { sourceMerchantId: merchant.id } }),
+    prisma.shopPayout.findMany({ where: { merchantId: merchant.id }, orderBy: { createdAt: "desc" }, take: 10 }),
   ]);
   const completed = orders.filter((order) => order.status === "completed");
   return {
@@ -41,7 +46,61 @@ export async function presentAdminShop(id: string | undefined) {
       itemsNgn: completed.reduce((sum, order) => sum + order.goodsNgn, 0),
       bank: adminShopBank(merchant),
       settlement,
+      /** Whether "Send with Paystack" can be offered at all. */
+      paystackTransfers: paystackConfigured(),
+      payouts: payouts.map(presentShopPayout),
     },
-    trips: orders.map(presentTrip),
+  };
+}
+
+/** Start of a Lagos calendar day (YYYY-MM-DD) as a UTC instant. */
+function lagosDayStart(day: string): Date {
+  const [year, month, date] = day.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, date) - LAGOS_OFFSET_MS);
+}
+
+/** A shop's orders booked between two Lagos days (both included), with totals over every match. */
+export async function listAdminShopOrders(id: string | undefined, range: { from?: string; to?: string }) {
+  const merchant = await findShop(id);
+  const createdAt = {
+    ...(range.from ? { gte: lagosDayStart(range.from) } : {}),
+    ...(range.to ? { lt: new Date(lagosDayStart(range.to).getTime() + 24 * 60 * 60 * 1000) } : {}),
+  };
+  const where = { merchantId: merchant.id, ...(range.from || range.to ? { createdAt } : {}) };
+  const [orders, all, { paidAt }] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      include: orderInclude,
+      orderBy: { createdAt: "desc" },
+      take: SHOP_ORDERS_LIMIT,
+    }),
+    prisma.order.findMany({
+      where,
+      select: {
+        status: true,
+        paymentStatus: true,
+        goodsNgn: true,
+        feeNgn: true,
+        farePayer: true,
+        paymentFeeNgn: true,
+      },
+    }),
+    shopLedger(merchant.id),
+  ]);
+  const counted = all.filter((order) => order.status !== "cancelled" && order.paymentStatus !== "refunded");
+  return {
+    trips: orders.map((order) => ({
+      ...presentTrip(order),
+      shopPaidOutAt: paidAt.get(order.id)?.toISOString() ?? null,
+    })),
+    totals: {
+      orders: counted.length,
+      customerPaidNgn: counted.reduce(
+        (sum, order) =>
+          sum + order.goodsNgn + (order.farePayer === "receiver" ? order.feeNgn : 0) + order.paymentFeeNgn,
+        0,
+      ),
+      shopNgn: counted.reduce((sum, order) => sum + shopPayoutNgn(order), 0),
+    },
   };
 }

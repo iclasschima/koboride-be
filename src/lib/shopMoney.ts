@@ -32,3 +32,43 @@ export function paystackFeeNgn(netNgn: number): number {
 export function shopPayoutNgn(order: Pick<CardOrder, "goodsNgn" | "feeNgn" | "farePayer">): number {
   return order.goodsNgn - (order.farePayer === "sender" ? order.feeNgn : 0);
 }
+
+type LedgerOrder = { id: string; amountNgn: number; markedPaidAt: Date | null };
+type LedgerPayout = { amountNgn: number; createdAt: Date };
+
+/**
+ * What a shop is owed: delivered card orders' shares minus payouts. Payouts cover open orders oldest first,
+ * so an order counts as paid once the payouts up to some date add up to it. Orders must be oldest first.
+ */
+export function shopBalance(orders: LedgerOrder[], payouts: LedgerPayout[]) {
+  const paidAt = new Map<string, Date>();
+  const open: LedgerOrder[] = [];
+  let earnedNgn = 0;
+  let paidOutNgn = 0;
+  for (const order of orders) {
+    earnedNgn += order.amountNgn;
+    if (order.markedPaidAt) {
+      paidOutNgn += order.amountNgn;
+      paidAt.set(order.id, order.markedPaidAt);
+    } else {
+      open.push(order);
+    }
+  }
+  let pool = 0;
+  let next = 0;
+  for (const payout of payouts) {
+    paidOutNgn += payout.amountNgn;
+    pool += payout.amountNgn;
+    while (next < open.length && pool >= open[next].amountNgn) {
+      pool -= open[next].amountNgn;
+      paidAt.set(open[next].id, payout.createdAt);
+      next += 1;
+    }
+  }
+  return {
+    owedNgn: Math.max(0, earnedNgn - paidOutNgn),
+    owedOrders: open.length - next,
+    paidOutNgn,
+    paidAt,
+  };
+}

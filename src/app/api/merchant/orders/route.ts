@@ -4,6 +4,7 @@ import { requireMerchant } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseBody, readJson } from "@/lib/validate";
 import { createMerchantOrder, presentMerchantOrder } from "@/lib/merchants";
+import { shopLedger } from "@/lib/shopPayouts";
 import { assertServiceOpen } from "@/lib/settings";
 import { orderInclude } from "@/lib/orders";
 import { PACKAGE_TYPES } from "@/lib/packages";
@@ -27,7 +28,8 @@ export const GET = api(async (req) => {
       take: 40,
       include: orderInclude,
     });
-    return json({ orders: orders.map(presentMerchantOrder) });
+    const { paidAt } = await shopLedger(merchant.id);
+    return json({ orders: orders.map((order) => presentMerchantOrder(order, paidAt.get(order.id))) });
   }
   const range = parseBody(rangeSchema, params);
   const inRange = { createdAt: { gte: new Date(range.from), lt: new Date(range.to) } };
@@ -42,7 +44,8 @@ export const GET = api(async (req) => {
     take: 500,
     include: orderInclude,
   });
-  return json({ orders: orders.map(presentMerchantOrder) });
+  const { paidAt } = await shopLedger(merchant.id);
+  return json({ orders: orders.map((order) => presentMerchantOrder(order, paidAt.get(order.id))) });
 });
 
 export const POST = api(async (req) => {

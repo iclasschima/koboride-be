@@ -175,6 +175,7 @@ model Admin {
   active       Boolean           @default(true)
   createdAt    DateTime          @default(now())
   refunds      Refund[]
+  shopPayouts  ShopPayout[]
 }
 
 /** A refund an admin sent from the Payments tab. */
@@ -242,10 +243,13 @@ model Merchant {
   bankAccountNo   String?
   /** Name returned by Paystack resolve. */
   bankAccountName String?
+  /// Paystack transfer recipient for the saved account. Cleared when the account changes.
+  paystackRecipientCode String?
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   items     MenuItem[]
   orders    Order[]
+  payouts   ShopPayout[]
   customers Customer[] @relation("CustomerSourceMerchant")
 }
 
@@ -525,7 +529,7 @@ model Order {
   merchant       Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
   /** Menu total in naira. Paid to the shop directly, or by card with the delivery. Riders never collect it. */
   goodsNgn       Int       @default(0)
-  /** Card-paid menu orders only: when KoboRide paid the shop its share. */
+  /** Older card orders only: when an admin marked this order's share paid. Newer payouts are ShopPayout rows. */
   shopPaidOutAt  DateTime?
   /// Shop orders: the kind of bag (e.g. "Food pack"). Riders see this instead of the items.
   packageType    String?
@@ -588,4 +592,23 @@ model OrderRelease {
 
   @@index([orderId])
   @@index([riderId, createdAt])
+}
+
+/// Item money sent to a shop. The shop is owed what its delivered card orders earned minus these.
+model ShopPayout {
+  id                   String   @id @default(cuid())
+  merchantId           String
+  merchant             Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  amountNgn            Int
+  reference            String   @unique
+  /// PROCESSING, SUCCESS, FAILED or REVERSED for Paystack transfers; MANUAL when an admin marked money sent another way.
+  status               String
+  paystackTransferCode String?
+  failureReason        String?
+  adminId              String
+  admin                Admin    @relation(fields: [adminId], references: [id])
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([merchantId, createdAt])
 }

@@ -1,7 +1,8 @@
 import { api, json, options } from "@/lib/errors";
 import { requireMerchant } from "@/lib/auth";
 import { parseBody, readJson } from "@/lib/validate";
-import { listShopItems, presentMerchant, setShopBank, shopBankSchema, shopSettlement } from "@/lib/merchants";
+import { listShopItems, presentMerchant, setShopBank, shopBankSchema } from "@/lib/merchants";
+import { shopSettlement } from "@/lib/shopPayouts";
 
 export const OPTIONS = () => options();
 

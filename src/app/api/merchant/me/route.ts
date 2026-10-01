@@ -6,9 +6,9 @@ import {
   presentMerchant,
   shopPatchSchema,
   shopReady,
-  shopSettlement,
   updateShop,
 } from "@/lib/merchants";
+import { shopSettlement } from "@/lib/shopPayouts";
 import { notifyAdminShopPending } from "@/lib/push";
 
 export const OPTIONS = () => options();

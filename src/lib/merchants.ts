@@ -98,7 +98,8 @@ export function presentItem(item: MenuItem) {
   };
 }
 
-export function presentMerchantOrder(order: OrderRow) {
+/** `paidAt` comes from the shop ledger; without it only orders marked paid the old way show as paid. */
+export function presentMerchantOrder(order: OrderRow, paidAt?: Date) {
   return {
     id: order.id,
     status: order.status,
@@ -115,7 +116,7 @@ export function presentMerchantOrder(order: OrderRow) {
     goodsNgn: order.goodsNgn,
     paidOnline: shopCardPaid(order),
     shopPayoutNgn: shopCardPaid(order) ? shopPayoutNgn(order) : 0,
-    shopPaidOutAt: order.shopPaidOutAt?.toISOString() ?? null,
+    shopPaidOutAt: (paidAt ?? order.shopPaidOutAt)?.toISOString() ?? null,
     readyAt: order.readyAt?.toISOString() ?? null,
     scheduledFor: order.scheduledFor?.toISOString() ?? null,
     createdAt: order.createdAt.toISOString(),
@@ -287,6 +288,7 @@ export async function setShopBank(merchantId: string, body: z.infer<typeof shopB
       bankCode: bank.code,
       bankAccountNo: encryptField(body.accountNumber),
       bankAccountName: accountName,
+      paystackRecipientCode: null,
     },
   });
 }
@@ -298,46 +300,6 @@ export function adminShopBank(merchant: Merchant) {
     accountName: merchant.bankAccountName ?? "",
     accountNumber: decryptField(merchant.bankAccountNo) ?? "",
   };
-}
-
-const OWED_WHERE = {
-  paymentMethod: "paystack",
-  paymentStatus: "paid",
-  status: "completed",
-} as const;
-
-export async function shopSettlement(merchantId: string) {
-  const orders = await prisma.order.findMany({
-    where: { merchantId, ...OWED_WHERE },
-    select: { goodsNgn: true, feeNgn: true, farePayer: true, shopPaidOutAt: true },
-  });
-  const owed = orders.filter((order) => !order.shopPaidOutAt);
-  return {
-    owedNgn: owed.reduce((sum, order) => sum + shopPayoutNgn(order), 0),
-    owedOrders: owed.length,
-    paidOutNgn: orders
-      .filter((order) => order.shopPaidOutAt)
-      .reduce((sum, order) => sum + shopPayoutNgn(order), 0),
-  };
-}
-
-/** The admin confirms the amount they transferred so a new delivery can't slip into the batch. */
-export async function markShopPaidOut(merchantId: string, amountNgn: number): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    const owed = await tx.order.findMany({
-      where: { merchantId, ...OWED_WHERE, shopPaidOutAt: null },
-      select: { id: true, goodsNgn: true, feeNgn: true, farePayer: true },
-    });
-    const total = owed.reduce((sum, order) => sum + shopPayoutNgn(order), 0);
-    if (total <= 0) throw new AppError("Nothing is owed to this shop", "NOTHING_OWED", 409);
-    if (total !== amountNgn) {
-      throw new AppError("The amount owed changed. Refresh and try again.", "AMOUNT_CHANGED", 409);
-    }
-    await tx.order.updateMany({
-      where: { id: { in: owed.map((order) => order.id) }, shopPaidOutAt: null },
-      data: { shopPaidOutAt: new Date() },
-    });
-  });
 }
 
 export async function shopCardPayments(): Promise<boolean> {

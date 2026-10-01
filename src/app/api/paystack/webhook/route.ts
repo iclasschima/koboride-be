@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { json } from "@/lib/errors";
 import { config } from "@/lib/config";
 import { handleTransferWebhook } from "@/lib/payoutRun";
+import { handleShopTransferWebhook, SHOP_PAYOUT_PREFIX } from "@/lib/shopPayouts";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,8 @@ export async function POST(req: Request) {
         : event === "transfer.failed"
           ? "transfer.failed"
           : event;
-    await handleTransferWebhook(event, reference, reason);
+    if (reference.startsWith(SHOP_PAYOUT_PREFIX)) await handleShopTransferWebhook(event, reference, reason);
+    else await handleTransferWebhook(event, reference, reason);
   }
   return json({ received: true });
 }
