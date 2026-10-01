@@ -404,15 +404,6 @@ export async function countActiveOrders(customerId: string): Promise<number> {
   });
 }
 
-/** Next booking is free after the first completed trip, until that second trip exists. */
-export async function isSecondOrderFree(customerId: string): Promise<boolean> {
-  const [completed, active] = await Promise.all([
-    prisma.order.count({ where: { customerId, status: "completed" } }),
-    countActiveOrders(customerId),
-  ]);
-  return completed === 1 && active === 0;
-}
-
 export async function countRecentCancels(
   customerId: string,
   resetAt?: Date | null,
@@ -704,9 +695,8 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
   let paymentStatus: PaymentStatus = "unpaid";
   let paystackReference: string | null = null;
   let paidAt: Date | null = null;
-  const previewFree = await isSecondOrderFree(input.customerId);
 
-  if (paymentMethod === "paystack" && !previewFree) {
+  if (paymentMethod === "paystack") {
     const ref = input.paystackReference?.trim();
     if (!ref) throw new AppError("Payment reference is missing", "VALIDATION_ERROR", 400);
     const used = await prisma.order.findUnique({ where: { paystackReference: ref } });
@@ -725,17 +715,12 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
 
   const maxActiveOrders = await getMaxActiveOrders();
   const order = await prisma.$transaction(async (tx) => {
-    const [active, completed] = await Promise.all([
-      tx.order.count({
-        where: {
-          customerId: input.customerId,
-          status: { in: [...ACTIVE_ORDER_STATUSES] },
-        },
-      }),
-      tx.order.count({
-        where: { customerId: input.customerId, status: "completed" },
-      }),
-    ]);
+    const active = await tx.order.count({
+      where: {
+        customerId: input.customerId,
+        status: { in: [...ACTIVE_ORDER_STATUSES] },
+      },
+    });
     if (active >= maxActiveOrders) {
       throw new AppError(
         `You can have at most ${maxActiveOrders} live orders. Finish or cancel one first.`,
@@ -743,10 +728,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
         429,
       );
     }
-    const secondFree = completed === 1 && active === 0;
-    const pickupOfferId = secondFree ? null : quote.pickupOfferId;
-    const dropoffOfferId = secondFree ? null : quote.dropoffOfferId;
-    await assertOfferUsesAvailable(input.customerId, [pickupOfferId, dropoffOfferId], tx);
+    await assertOfferUsesAvailable(input.customerId, [quote.pickupOfferId, quote.dropoffOfferId], tx);
 
     return tx.order.create({
       data: {
@@ -764,18 +746,18 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
         pickupLng: quote.pickupLng,
         dropoffLat: quote.dropoffLat,
         dropoffLng: quote.dropoffLng,
-        pickupOfferId,
-        dropoffOfferId,
+        pickupOfferId: quote.pickupOfferId,
+        dropoffOfferId: quote.dropoffOfferId,
         zoneSlug: quote.zoneSlug,
-        feeNgn: secondFree ? 0 : quote.feeNgn,
+        feeNgn: quote.feeNgn,
         payoutNgn: quote.payoutNgn,
         distanceKm: quote.distanceKm,
         routeGeometry: quote.routeGeometry ?? undefined,
         routeDurationSeconds: quote.routeDurationSeconds,
-        paymentMethod: secondFree ? "cash" : paymentMethod,
-        paymentStatus: secondFree ? "unpaid" : paymentStatus,
-        paystackReference: secondFree ? null : paystackReference,
-        paidAt: secondFree ? null : paidAt,
+        paymentMethod,
+        paymentStatus,
+        paystackReference,
+        paidAt,
         deliveryPin: customerRole === "sender" ? generateDeliveryPin() : "",
         ...(riderId
           ? {
@@ -789,11 +771,6 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
     });
   });
 
-  if (order.feeNgn === 0) {
-    await writeOrderEvent(order.id, "second_order_free", {
-      listFeeNgn: quote.listFeeNgn,
-    });
-  }
   if (order.riderId) await notifyOrderAccepted(order);
   else await notifySearchingRider(order);
   await notifyAdminNewOrder(order);

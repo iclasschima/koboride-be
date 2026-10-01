@@ -40,8 +40,6 @@ export const GET = api(async (req) => {
   ).length;
   const cancelsInWindow = await countRecentCancels(user.sub, customer?.cancelLimitResetAt);
   const cancelLimited = isCancelLimited(cancelsInWindow);
-  const completedOrders = orders.filter((o) => o.status === "completed").length;
-  const secondOrderFree = completedOrders === 1 && activeOrders === 0;
   return json({
     trips: orders.map(presentTrip),
     activeOrders,
@@ -49,7 +47,6 @@ export const GET = api(async (req) => {
     cancelLimited,
     canPlaceOrder: !cancelLimited && activeOrders < maxActiveOrders,
     orderHoldReason: cancelLimited ? cancelHoldMessage() : null,
-    secondOrderFree,
   });
 });
 

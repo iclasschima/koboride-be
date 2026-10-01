@@ -121,6 +121,30 @@ export async function requireCustomer(req: Request) {
   return customer;
 }
 
+/**
+ * Shop link checkout has no code step. The signed-in customer is used when there is one;
+ * otherwise the checkout phone is registered, keeping any name the account already has.
+ */
+export async function shopCheckoutCustomer(req: Request, phone: string, name: string) {
+  const user = optionalUser(req);
+  if (user?.role === "customer") {
+    const signedIn = await prisma.customer.findUnique({ where: { id: user.sub } });
+    if (signedIn) return { customer: signedIn, signedIn: true };
+  }
+  const found = await findOrCreateCustomer(phone);
+  const customer = found.name?.trim()
+    ? found
+    : await prisma.customer.update({ where: { id: found.id }, data: { name: name.trim() } });
+  return { customer, signedIn: false };
+}
+
+export async function customerSession(customer: { id: string; phone: string; name: string | null }) {
+  return {
+    token: signToken({ sub: customer.id, role: "customer" }),
+    user: await presentCustomer(customer),
+  };
+}
+
 export async function signInCustomer(phoneInput: string, name?: string) {
   const customer = await findOrCreateCustomer(phoneInput, name);
   assertCustomerActive(customer);

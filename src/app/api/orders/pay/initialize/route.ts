@@ -3,12 +3,7 @@ import { parseBody, readJson, customerBookingSchema } from "@/lib/validate";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { quoteRoute } from "@/lib/fare";
-import {
-  assertCustomerCanBook,
-  countActiveOrders,
-  isSecondOrderFree,
-  resolveCustomerContacts,
-} from "@/lib/orders";
+import { assertCustomerCanBook, countActiveOrders, resolveCustomerContacts } from "@/lib/orders";
 import { getMaxActiveOrders } from "@/lib/settings";
 import { onlinePaymentsEnabled } from "@/lib/payoutFlags";
 import {
@@ -42,14 +37,6 @@ export const POST = api(async (req) => {
     receiverName: body.receiverName,
     receiverPhone: body.receiverPhone,
   });
-
-  if (await isSecondOrderFree(customer.id)) {
-    throw new AppError(
-      "This order is free — no payment needed.",
-      "SECOND_ORDER_FREE",
-      409,
-    );
-  }
 
   const [quote, maxActiveOrders, active] = await Promise.all([
     quoteRoute({ ...body, paymentMethod: "paystack", customerId: customer.id }),

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { api, json, options, AppError } from "@/lib/errors";
-import { requireCustomer } from "@/lib/auth";
+import { customerSession, shopCheckoutCustomer } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseBody, readJson } from "@/lib/validate";
 import { createMerchantOrder, shopLive, shopOrderSchema } from "@/lib/merchants";
@@ -10,7 +10,6 @@ export const OPTIONS = () => options();
 export const POST = api(async (req, ctx) => {
   const slug = ctx.params?.slug;
   if (!slug) throw new AppError("Missing shop", "VALIDATION_ERROR", 400);
-  const customer = await requireCustomer(req);
   const merchant = await prisma.merchant.findUnique({ where: { slug } });
   if (!merchant || !shopLive(merchant)) {
     throw new AppError("This shop is not available", "NOT_FOUND", 404);
@@ -23,8 +22,10 @@ export const POST = api(async (req, ctx) => {
     await readJson(req),
   );
   if (body.paymentMethod !== "paystack") {
-    throw new AppError("Pay by card to order from this shop", "CARD_REQUIRED", 400);
+    throw new AppError("Pay online to order from this shop", "CARD_REQUIRED", 400);
   }
+  const { customer, signedIn } = await shopCheckoutCustomer(req, body.receiverPhone, body.receiverName);
+  const earlierOrders = await prisma.order.count({ where: { customerId: customer.id } });
   const order = await createMerchantOrder({
     merchant,
     dropoff: body.dropoff,
@@ -41,5 +42,8 @@ export const POST = api(async (req, ctx) => {
     paymentMethod: "paystack",
     paystackReference: body.paystackReference,
   });
-  return json({ order: { id: order.id } }, 201);
+  // Without a code, only an account with nothing in it yet is safe to hand over.
+  const session = await customerSession(customer);
+  const empty = earlierOrders === 0 && !session.user.isRider && !session.user.isMerchant && !session.user.isAgent;
+  return json({ order: { id: order.id }, session: signedIn || empty ? session : null }, 201);
 });
