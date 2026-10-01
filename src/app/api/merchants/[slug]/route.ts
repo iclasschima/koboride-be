@@ -26,6 +26,7 @@ export const GET = api(async (_req, ctx) => {
       hours: shopHours(merchant),
       openNow: shopOpenAt(shopHours(merchant)),
       cardPayments: await shopCardPayments(),
+      maxBags: merchant.maxBags,
       items: items.map(presentItem),
     },
   });

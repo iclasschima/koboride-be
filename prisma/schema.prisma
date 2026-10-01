@@ -159,6 +159,8 @@ model Merchant {
   /// Numbers shown on the shop link. Calls fall back to the sign-in phone; WhatsApp is hidden when empty.
   callPhone     String?
   whatsappPhone String?
+  /// How many different bags one link order can contain. 1 means a single bag.
+  maxBags       Int         @default(1)
   /// Where KoboRide pays out card-paid menu orders.
   bankName        String?
   bankCode        String?
@@ -450,6 +452,8 @@ model Order {
   shopPaidOutAt  DateTime?
   /// Shop orders: the kind of bag (e.g. "Food pack"). Riders see this instead of the items.
   packageType    String?
+  /// How many bags the shop packs for this one delivery. Riders collect all of them.
+  bagCount       Int         @default(1)
   /** Null while a link order is still being packed. Shop-sent bags are ready immediately. */
   readyAt        DateTime?
   lines          OrderLine[]
@@ -474,6 +478,8 @@ model OrderLine {
   name     String
   qty      Int
   priceNgn Int
+  /// Which bag in the delivery this line belongs to. 1 when the order is a single bag.
+  bagIndex Int    @default(1)
 
   @@index([orderId])
 }

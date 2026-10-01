@@ -73,6 +73,7 @@ export function presentMerchant(merchant: Merchant, items: MenuItem[] = []) {
     hours: shopHours(merchant),
     callPhone: merchant.callPhone,
     whatsappPhone: merchant.whatsappPhone,
+    maxBags: merchant.maxBags,
     link: `/m/${merchant.slug}`,
     bank: merchant.bankCode
       ? {
@@ -106,6 +107,7 @@ export function presentMerchantOrder(order: OrderRow) {
     receiverPhone: order.receiverPhone,
     notes: splitOrderNotes(order.notes).shopNotes,
     packageType: order.packageType ?? DEFAULT_SHOP_PACKAGE,
+    bagCount: order.bagCount,
     feeNgn: order.feeNgn,
     farePayer: order.farePayer,
     goodsNgn: order.goodsNgn,
@@ -121,7 +123,7 @@ export function presentMerchantOrder(order: OrderRow) {
 }
 
 function presentLine(line: OrderLine) {
-  return { id: line.id, name: line.name, qty: line.qty, priceNgn: line.priceNgn };
+  return { id: line.id, name: line.name, qty: line.qty, priceNgn: line.priceNgn, bagIndex: line.bagIndex };
 }
 
 export function assertSlug(slug: string): string {
@@ -140,6 +142,7 @@ export const shopPatchSchema = z.object({
   lng: z.number().finite().optional(),
   callPhone: z.string().max(20).nullable().optional(),
   whatsappPhone: z.string().max(20).nullable().optional(),
+  maxBags: z.number().int().min(1).max(10).optional(),
   hours: z
     .object({
       opensAt: z.string().regex(CLOCK, "Use a time like 09:00"),
@@ -194,6 +197,7 @@ export async function updateShop(
       lng: body.lng,
       callPhone: optionalPhone(body.callPhone),
       whatsappPhone: optionalPhone(body.whatsappPhone),
+      maxBags: body.maxBags,
       opensAt: body.hours === undefined ? undefined : (body.hours?.opensAt ?? null),
       closesAt: body.hours === undefined ? undefined : (body.hours?.closesAt ?? null),
       ...extra,
@@ -385,14 +389,12 @@ export async function removeShopItem(merchantId: string, itemId: string): Promis
   await prisma.menuItem.delete({ where: { id: itemId } });
 }
 
-type LineInput = { name: string; qty: number; priceNgn: number };
+type LineInput = { name: string; qty: number; priceNgn: number; bagIndex: number };
 
-/**
- * Link orders are priced from the live menu, not from what the browser sent.
- * Required items are added once if missing, so the card charge and the order always agree.
- */
-async function priceLines(merchantId: string, lines: Array<{ itemId: string; qty: number }>): Promise<LineInput[]> {
-  const menu = await prisma.menuItem.findMany({ where: { merchantId, available: true } });
+type MenuRow = { id: string; name: string; priceNgn: number; required: boolean };
+
+/** One bag, priced from the live menu. A required item is added when this bag omitted it. */
+function priceBag(menu: MenuRow[], lines: Array<{ itemId: string; qty: number }>, bagIndex: number): LineInput[] {
   const byId = new Map(menu.map((item) => [item.id, item]));
   const priced: LineInput[] = [];
   const chosen = new Set<string>();
@@ -402,18 +404,62 @@ async function priceLines(merchantId: string, lines: Array<{ itemId: string; qty
     const qty = Math.trunc(line.qty);
     if (qty < 1 || qty > 99) throw new AppError("Choose between 1 and 99 of each item", "VALIDATION_ERROR", 400);
     chosen.add(item.id);
-    priced.push({ name: item.name, qty, priceNgn: item.priceNgn });
+    priced.push({ name: item.name, qty, priceNgn: item.priceNgn, bagIndex });
   }
   const hasOptional = menu.some((item) => !item.required);
   if (hasOptional && !lines.some((line) => !byId.get(line.itemId)?.required)) {
-    throw new AppError("Add an item from the menu", "VALIDATION_ERROR", 400);
+    throw new AppError(bagIndex > 1 ? `Add an item to bag ${bagIndex}` : "Add an item from the menu", "VALIDATION_ERROR", 400);
   }
   for (const item of menu) {
     if (item.required && !chosen.has(item.id)) {
-      priced.push({ name: item.name, qty: 1, priceNgn: item.priceNgn });
+      priced.push({ name: item.name, qty: 1, priceNgn: item.priceNgn, bagIndex });
     }
   }
   return priced;
+}
+
+/**
+ * Link orders are priced from the live menu, not from what the browser sent.
+ * Each bag is its own selection. Required items are added to a bag that omitted them.
+ */
+async function priceLines(
+  merchantId: string,
+  lines: Array<{ itemId: string; qty: number; bag?: number }>,
+  maxBags: number,
+): Promise<LineInput[]> {
+  const menu = await prisma.menuItem.findMany({ where: { merchantId, available: true } });
+  const groups = new Map<number, Array<{ itemId: string; qty: number }>>();
+  for (const line of lines) {
+    const bag = line.bag ?? 1;
+    if (bag < 1 || bag > maxBags) {
+      throw new AppError(
+        maxBags === 1 ? "This shop takes one bag per order" : `This shop takes up to ${maxBags} bags`,
+        "VALIDATION_ERROR",
+        400,
+      );
+    }
+    const list = groups.get(bag) ?? [];
+    list.push({ itemId: line.itemId, qty: line.qty });
+    groups.set(bag, list);
+  }
+  const indexes = Array.from(groups.keys()).sort((a, b) => a - b);
+  if (indexes.some((bag, index) => bag !== index + 1)) {
+    throw new AppError("Number the bags from 1", "VALIDATION_ERROR", 400);
+  }
+  return indexes.flatMap((bag) => priceBag(menu, groups.get(bag) ?? [], bag));
+}
+
+/** Flat item list for one bag, or "Bag 1: …" lines when the delivery has several. */
+function lineSummary(lines: Array<{ bagIndex: number; qty: number; name: string }>): string {
+  const bags = new Map<number, string[]>();
+  for (const line of lines) {
+    const parts = bags.get(line.bagIndex) ?? [];
+    parts.push(`${line.qty} × ${line.name}`);
+    bags.set(line.bagIndex, parts);
+  }
+  const groups = Array.from(bags.entries()).sort((a, b) => a[0] - b[0]);
+  if (groups.length <= 1) return groups[0]?.[1].join(", ") ?? "";
+  return groups.map(([bag, parts]) => `Bag ${bag}: ${parts.join(", ")}`).join("\n");
 }
 
 export const shopOrderSchema = z.object({
@@ -425,9 +471,15 @@ export const shopOrderSchema = z.object({
   notes: z.string().max(400).optional(),
   noteFor: z.enum(["shop", "rider"]).optional(),
   items: z
-    .array(z.object({ itemId: z.string().min(1), qty: z.number().int().min(1).max(99) }))
+    .array(
+      z.object({
+        itemId: z.string().min(1),
+        qty: z.number().int().min(1).max(99),
+        bag: z.number().int().min(1).max(10).optional(),
+      }),
+    )
     .min(1)
-    .max(30),
+    .max(80),
 });
 
 function assertShopCanSend(merchant: Merchant): asserts merchant is Merchant & { lat: number; lng: number } {
@@ -444,12 +496,12 @@ async function priceShopOrder(input: {
   dropoff: string;
   dropoffLat: number;
   dropoffLng: number;
-  items?: Array<{ itemId: string; qty: number }>;
+  items?: Array<{ itemId: string; qty: number; bag?: number }>;
   paymentMethod: PaymentMethod;
   customerId: string;
 }) {
   const { merchant } = input;
-  const lines = input.items?.length ? await priceLines(merchant.id, input.items) : [];
+  const lines = input.items?.length ? await priceLines(merchant.id, input.items, merchant.maxBags) : [];
   const goodsNgn = lines.reduce((sum, line) => sum + line.priceNgn * line.qty, 0);
   const quote = await quoteRoute({
     pickup: `${merchant.name} — ${merchant.address.trim()}`,
@@ -535,7 +587,7 @@ export async function createMerchantOrder(input: {
   noteFor?: "shop" | "rider";
   packageType?: PackageType;
   farePayer: CustomerRole;
-  items?: Array<{ itemId: string; qty: number }>;
+  items?: Array<{ itemId: string; qty: number; bag?: number }>;
   scheduledFor?: Date | null;
   holdUntilReady: boolean;
   customerId?: string;
@@ -581,8 +633,8 @@ export async function createMerchantOrder(input: {
   const scheduledFor =
     input.scheduledFor && input.scheduledFor.getTime() > now.getTime() ? input.scheduledFor : null;
   const readyAt = input.holdUntilReady ? null : now;
-  const summary = lines.map((line) => `${line.qty} × ${line.name}`).join(", ");
-  const notes = composeOrderNotes(summary, input.notes ?? "", input.noteFor === "rider" ? "rider" : "shop");
+  const notes = composeOrderNotes(lineSummary(lines), input.notes ?? "", input.noteFor === "rider" ? "rider" : "shop");
+  const bagCount = new Set(lines.map((line) => line.bagIndex)).size || 1;
 
   const order = await prisma.order.create({
     data: {
@@ -592,6 +644,7 @@ export async function createMerchantOrder(input: {
       dropoff: quote.dropoff,
       notes,
       packageType: input.packageType ?? DEFAULT_SHOP_PACKAGE,
+      bagCount,
       senderName: merchant.name,
       senderPhone: merchant.phone,
       receiverName,

@@ -174,6 +174,7 @@ function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
     feeNgn: order.feeNgn,
     goodsNgn: order.goodsNgn,
     packageType: order.packageType,
+    bagCount: order.bagCount,
     merchantId: order.merchantId,
     merchantName: order.merchant?.name ?? null,
     readyAt: order.readyAt?.toISOString() ?? null,
@@ -182,6 +183,7 @@ function toTrip(order: OrderRow, hideDeliveryPin: boolean) {
       name: line.name,
       qty: line.qty,
       priceNgn: line.priceNgn,
+      bagIndex: line.bagIndex,
     })),
     status: order.status,
     riderPhase: order.riderPhase,
@@ -268,8 +270,9 @@ export function presentRiderTrip(order: OrderRow) {
   const trip = toTrip(order, !order.deliveryPinRevealedAt);
   if (!order.merchantId) return trip;
   const bag = order.packageType ?? DEFAULT_SHOP_PACKAGE;
+  const packed = order.bagCount > 1 ? `${order.bagCount} × ${bag}` : bag;
   const { riderNote } = splitOrderNotes(order.notes);
-  return { ...trip, notes: riderNote ? `${bag}\n${riderNote}` : bag, lines: [], goodsNgn: 0 };
+  return { ...trip, notes: riderNote ? `${packed}\n${riderNote}` : packed, lines: [], goodsNgn: 0 };
 }
 
 export function nextPhase(phase: RiderPhase | null): RiderPhase | null {

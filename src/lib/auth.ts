@@ -133,20 +133,25 @@ export async function signInCustomer(phoneInput: string, name?: string) {
   };
 }
 
-export async function signInRider(phoneInput: string) {
-  const keys = phoneLookupKeys(phoneInput);
-  const phone = preferredPhone(phoneInput);
-  const rider = await prisma.rider.findFirst({ where: { phone: { in: keys } } });
-  if (rider && rider.phone !== phone) {
-    await prisma.rider.update({ where: { id: rider.id }, data: { phone } });
-    rider.phone = phone;
-  }
+/** Throws before a code is sent when ops has not added this number. */
+export async function requireRiderAccount(phone: string) {
+  const rider = await prisma.rider.findFirst({ where: { phone: { in: phoneLookupKeys(phone) } } });
   if (!rider) {
     throw new AppError(
       "No rider account for this number. Ask ops to add you.",
       "RIDER_NOT_FOUND",
       401,
     );
+  }
+  return rider;
+}
+
+export async function signInRider(phoneInput: string) {
+  const phone = preferredPhone(phoneInput);
+  const rider = await requireRiderAccount(phoneInput);
+  if (rider.phone !== phone) {
+    await prisma.rider.update({ where: { id: rider.id }, data: { phone } });
+    rider.phone = phone;
   }
 
   const token = signToken({ sub: rider.id, role: "rider" });

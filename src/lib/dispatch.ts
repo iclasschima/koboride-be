@@ -175,7 +175,8 @@ async function autoCancelStaleSearching(now = new Date()): Promise<number> {
       if (done) cancelled += 1;
       continue;
     }
-    if (waited >= config.searchingAutoCancelAfterMs) {
+    // Shop bags stay open until a rider takes them or the shop cancels.
+    if (!order.merchantId && waited >= config.searchingAutoCancelAfterMs) {
       const done = await cancelUnassignedSearch(order, now, {
         reason: AUTO_CANCEL_REASON,
         eventType: "auto_cancelled_no_rider",
@@ -341,9 +342,10 @@ export function dispatchPresentation(
     stillLookingAfterMs: minutesToMs(settings.stillLookingAfterMinutes),
     retentionOfferShown: Boolean(order.retentionOfferShown),
     retentionDiscountNgn: config.retentionDiscountNgn,
-    autoCancelInMs: active
-      ? Math.max(0, config.searchingAutoCancelAfterMs - searchingForMs)
-      : null,
+    autoCancelInMs:
+      active && !order.merchantId
+        ? Math.max(0, config.searchingAutoCancelAfterMs - searchingForMs)
+        : null,
   };
 }
 
