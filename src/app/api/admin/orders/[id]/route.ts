@@ -1,12 +1,12 @@
 import { api, json, options, AppError } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { prisma } from "@/lib/prisma";
 import { getOrderOrThrow, presentRelease, presentTrip, refundIfPaidOnline } from "@/lib/orders";
 
 export const OPTIONS = () => options();
 
 export const GET = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "orders");
   const id = ctx.params?.id;
   if (!id) throw new AppError("Missing order id", "VALIDATION_ERROR", 400);
 
@@ -41,7 +41,7 @@ export const GET = api(async (req, ctx) => {
 });
 
 export const DELETE = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "orders");
   const id = ctx.params?.id;
   if (!id) throw new AppError("Missing order id", "VALIDATION_ERROR", 400);
 

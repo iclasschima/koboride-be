@@ -5,6 +5,7 @@ import { AppError } from "@/lib/errors";
 import { config } from "@/lib/config";
 import { activeZones, getPricingZones, type PricingZone } from "@/lib/zones";
 import { onlinePaymentsEnabled } from "@/lib/payoutFlags";
+import { announceAppChange } from "@/lib/live";
 
 export const MAX_ACTIVE_ORDERS_KEY = "maxActiveOrders";
 export const PLATFORM_CUT_KEY = "platformCutPercent";
@@ -15,9 +16,11 @@ export const MIN_FARE_KEY = "minFareNgn";
 export const ONLINE_DISCOUNT_KEY = "onlinePaymentDiscountNgn";
 export const STILL_LOOKING_KEY = "stillLookingAfterMinutes";
 export const RESCHEDULE_DELAY_KEY = "rescheduleDelayMinutes";
-export const THEME_KEY = "theme";
-export const THEME_IDS = ["violet", "caesar"] as const;
-export type ThemeId = (typeof THEME_IDS)[number];
+export const SERVICE_OPEN_KEY = "serviceOpen";
+export const SERVICE_PAUSED_MESSAGE_KEY = "servicePausedMessage";
+export const DEFAULT_SERVICE_PAUSED_MESSAGE =
+  "We're not taking new orders right now. Please check back soon.";
+const SERVICE_PAUSED_MESSAGE_MAX = 200;
 
 const MAX_ACTIVE_ORDERS_CEILING = 50;
 const FARE_AMOUNT_MAX = 50_000;
@@ -37,7 +40,10 @@ export type PlatformSettings = {
   stillLookingAfterMinutes: number;
   /** Minutes to pause search when the customer takes that retry. */
   rescheduleDelayMinutes: number;
-  theme: ThemeId;
+  /** False while ops has paused new orders, e.g. when no rider is available. */
+  serviceOpen: boolean;
+  /** What customers and shops see while new orders are paused. */
+  servicePausedMessage: string;
 };
 
 export type ClientAppStatus = {
@@ -45,10 +51,11 @@ export type ClientAppStatus = {
   paystackEnabled: boolean;
   zones: PricingZone[];
   maxDeliveryDistanceKm: number;
-  theme: ThemeId;
   baseFeeNgn: number;
   perKmFeeNgn: number;
   minFareNgn: number;
+  serviceOpen: boolean;
+  servicePausedMessage: string;
 };
 
 const CLIENT_REFRESH_HEADER = "X-Kobo-Refresh";
@@ -65,7 +72,8 @@ const SETTINGS_KEYS = [
   ONLINE_DISCOUNT_KEY,
   STILL_LOOKING_KEY,
   RESCHEDULE_DELAY_KEY,
-  THEME_KEY,
+  SERVICE_OPEN_KEY,
+  SERVICE_PAUSED_MESSAGE_KEY,
 ] as const;
 
 export function minutesToMs(minutes: number): number {
@@ -123,12 +131,9 @@ function defaultPlatformSettings(): PlatformSettings {
     onlinePaymentDiscountNgn: config.onlinePaymentDiscountNgn,
     stillLookingAfterMinutes: minutesFromMs(config.stillLookingAfterMs, 8),
     rescheduleDelayMinutes: minutesFromMs(config.rescheduleDelayMs, 30),
-    theme: "violet",
+    serviceOpen: true,
+    servicePausedMessage: DEFAULT_SERVICE_PAUSED_MESSAGE,
   };
-}
-
-function parseTheme(raw: string | undefined): ThemeId {
-  return raw === "caesar" ? "caesar" : "violet";
 }
 
 export function cachedPlatformSettings(): PlatformSettings {
@@ -167,13 +172,15 @@ function settingsFromMap(map: Record<string, string | undefined>): PlatformSetti
       1,
       RESCHEDULE_DELAY_MINUTES_MAX,
     ),
-    theme: parseTheme(map[THEME_KEY]),
+    serviceOpen: map[SERVICE_OPEN_KEY] !== "false",
+    servicePausedMessage: map[SERVICE_PAUSED_MESSAGE_KEY]?.trim() || fallback.servicePausedMessage,
   };
 }
 
-export async function getPlatformSettings(): Promise<PlatformSettings> {
+/** Each route keeps its own cache, so reads that must see a change made elsewhere pass `fresh`. */
+export async function getPlatformSettings({ fresh = false } = {}): Promise<PlatformSettings> {
   const now = Date.now();
-  if (settingsCache && now - settingsCache.at < 2_000) return settingsCache.value;
+  if (!fresh && settingsCache && now - settingsCache.at < 2_000) return settingsCache.value;
   const rows = await prisma.appSetting.findMany({
     where: { key: { in: [...SETTINGS_KEYS] } },
   });
@@ -183,9 +190,9 @@ export async function getPlatformSettings(): Promise<PlatformSettings> {
   return value;
 }
 
-export async function getClientAppStatus(): Promise<ClientAppStatus> {
+export async function getClientAppStatus({ fresh = false } = {}): Promise<ClientAppStatus> {
   const [settings, paymentsOn] = await Promise.all([
-    getPlatformSettings(),
+    getPlatformSettings({ fresh }),
     getPricingZones(),
     onlinePaymentsEnabled(),
   ]).then(([settings, , paymentsOn]) => [settings, paymentsOn] as const);
@@ -194,11 +201,19 @@ export async function getClientAppStatus(): Promise<ClientAppStatus> {
     paystackEnabled: Boolean(config.paystackSecretKey.trim() && config.paystackPublicKey.trim()) && paymentsOn,
     zones: activeZones(),
     maxDeliveryDistanceKm: config.maxDeliveryDistanceKm,
-    theme: settings.theme,
     baseFeeNgn: settings.baseFeeNgn,
     perKmFeeNgn: settings.perKmFeeNgn,
     minFareNgn: settings.minFareNgn,
+    serviceOpen: settings.serviceOpen,
+    servicePausedMessage: settings.servicePausedMessage,
   };
+}
+
+/** New orders are refused while ops has paused the service. Orders already paid by card still go through. */
+export async function assertServiceOpen(): Promise<void> {
+  const settings = await getPlatformSettings({ fresh: true });
+  if (settings.serviceOpen) return;
+  throw new AppError(settings.servicePausedMessage, "SERVICE_PAUSED", 503);
 }
 
 export async function getMaxActiveOrders(): Promise<number> {
@@ -237,7 +252,8 @@ function hasSettingsPatch(
     input.onlinePaymentDiscountNgn !== undefined ||
     input.stillLookingAfterMinutes !== undefined ||
     input.rescheduleDelayMinutes !== undefined ||
-    input.theme !== undefined ||
+    input.serviceOpen !== undefined ||
+    input.servicePausedMessage !== undefined ||
     input.bumpClientRefresh === true
   );
 }
@@ -265,7 +281,11 @@ export async function updatePlatformSettings(
       input.stillLookingAfterMinutes ?? current.stillLookingAfterMinutes,
     rescheduleDelayMinutes:
       input.rescheduleDelayMinutes ?? current.rescheduleDelayMinutes,
-    theme: input.theme ?? current.theme,
+    serviceOpen: input.serviceOpen ?? current.serviceOpen,
+    servicePausedMessage:
+      input.servicePausedMessage === undefined
+        ? current.servicePausedMessage
+        : input.servicePausedMessage.trim() || DEFAULT_SERVICE_PAUSED_MESSAGE,
   };
 
   if (
@@ -323,9 +343,11 @@ export async function updatePlatformSettings(
     upsertSetting(ONLINE_DISCOUNT_KEY, String(next.onlinePaymentDiscountNgn)),
     upsertSetting(STILL_LOOKING_KEY, String(next.stillLookingAfterMinutes)),
     upsertSetting(RESCHEDULE_DELAY_KEY, String(next.rescheduleDelayMinutes)),
-    upsertSetting(THEME_KEY, next.theme),
+    upsertSetting(SERVICE_OPEN_KEY, String(next.serviceOpen)),
+    upsertSetting(SERVICE_PAUSED_MESSAGE_KEY, next.servicePausedMessage),
   ]);
   invalidateSettingsCache();
+  await announceAppChange();
   return getPlatformSettings();
 }
 
@@ -339,7 +361,8 @@ export const platformSettingsPatchSchema = z
     onlinePaymentDiscountNgn: z.number().int().min(0).max(ONLINE_DISCOUNT_MAX).optional(),
     stillLookingAfterMinutes: z.number().int().min(1).max(STILL_LOOKING_MINUTES_MAX).optional(),
     rescheduleDelayMinutes: z.number().int().min(1).max(RESCHEDULE_DELAY_MINUTES_MAX).optional(),
-    theme: z.enum(THEME_IDS).optional(),
+    serviceOpen: z.boolean().optional(),
+    servicePausedMessage: z.string().max(SERVICE_PAUSED_MESSAGE_MAX).optional(),
     bumpClientRefresh: z.literal(true).optional(),
   })
   .refine(hasSettingsPatch, { message: "Nothing to update" });

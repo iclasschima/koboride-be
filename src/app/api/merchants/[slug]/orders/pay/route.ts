@@ -3,6 +3,7 @@ import { shopCheckoutCustomer } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseBody, readJson } from "@/lib/validate";
 import { shopLive, shopOrderSchema, startShopCardPayment } from "@/lib/merchants";
+import { assertServiceOpen } from "@/lib/settings";
 
 export const OPTIONS = () => options();
 
@@ -13,6 +14,7 @@ export const POST = api(async (req, ctx) => {
   if (!merchant || !shopLive(merchant)) {
     throw new AppError("This shop is not available", "NOT_FOUND", 404);
   }
+  await assertServiceOpen();
   const body = parseBody(shopOrderSchema, await readJson(req));
   const { customer } = await shopCheckoutCustomer(req, body, merchant.id);
   return json(await startShopCardPayment(merchant, body, customer));

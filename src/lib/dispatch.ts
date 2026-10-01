@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { config, riderPayoutNgn } from "@/lib/config";
 import { AppError } from "@/lib/errors";
+import { announceOrderChange } from "@/lib/live";
 import { nairaToKobo, refundPaystack } from "@/lib/paystack";
 import { prisma } from "@/lib/prisma";
 import {
@@ -116,6 +117,7 @@ export async function activateDueScheduledOrders(now = new Date()): Promise<numb
       scheduledFor: order.scheduledFor?.toISOString() ?? null,
       rescheduleCount: order.rescheduleCount,
     });
+    await announceOrderChange(order.id);
     await notifySearchingRider(order);
     activated += 1;
   }

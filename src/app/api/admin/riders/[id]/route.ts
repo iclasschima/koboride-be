@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { api, json, options, AppError } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { uploadRiderIdDocument, uploadRiderPhoto } from "@/lib/cloudinary";
 import { orderDurationSeconds, orderInclude, presentTrip } from "@/lib/orders";
 import { normalizePhone, phoneLookupKeys } from "@/lib/phone";
@@ -87,7 +87,7 @@ async function readPatchInput(req: Request): Promise<{
 }
 
 export const GET = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "riders");
   const id = ctx.params?.id;
   if (!id) throw new AppError("Missing rider id", "VALIDATION_ERROR", 400);
 
@@ -151,7 +151,7 @@ export const GET = api(async (req, ctx) => {
 });
 
 export const PATCH = api(async (req, ctx) => {
-  const admin = requireUser(req, ["admin"]);
+  const admin = await requireAdmin(req, "riders");
   const id = ctx.params?.id;
   if (!id) throw new AppError("Missing rider id", "VALIDATION_ERROR", 400);
 
@@ -239,7 +239,7 @@ export const PATCH = api(async (req, ctx) => {
 });
 
 export const DELETE = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "riders");
   const id = ctx.params?.id;
   if (!id) throw new AppError("Missing rider id", "VALIDATION_ERROR", 400);
 

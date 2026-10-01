@@ -4,6 +4,7 @@ import { customerSession, shopCheckoutCustomer } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseBody, readJson } from "@/lib/validate";
 import { createMerchantOrder, shopLive, shopOrderSchema } from "@/lib/merchants";
+import { assertServiceOpen } from "@/lib/settings";
 
 export const OPTIONS = () => options();
 
@@ -24,6 +25,7 @@ export const POST = api(async (req, ctx) => {
   if (body.paymentMethod !== "paystack") {
     throw new AppError("Pay online to order from this shop", "CARD_REQUIRED", 400);
   }
+  if (!body.paystackReference) await assertServiceOpen();
   const { customer, signedIn } = await shopCheckoutCustomer(req, body, merchant.id);
   const earlierOrders = await prisma.order.count({ where: { customerId: customer.id } });
   const order = await createMerchantOrder({

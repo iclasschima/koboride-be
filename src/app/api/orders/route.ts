@@ -14,7 +14,7 @@ import {
   presentTrip,
   resolveCustomerContacts,
 } from "@/lib/orders";
-import { getMaxActiveOrders } from "@/lib/settings";
+import { assertServiceOpen, getMaxActiveOrders } from "@/lib/settings";
 
 export const OPTIONS = () => options();
 
@@ -59,6 +59,7 @@ export const POST = api(async (req) => {
     }),
     await readJson(req),
   );
+  if (!body.paystackReference) await assertServiceOpen();
 
   const customer = await prisma.customer.findUnique({ where: { id: user.sub } });
   if (!customer) {

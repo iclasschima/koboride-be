@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { api, json, options } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { parseBody, readJson } from "@/lib/validate";
 import { shopPatchSchema, updateShop } from "@/lib/merchants";
 import { findShop, presentAdminShop } from "@/lib/adminShops";
@@ -8,12 +8,12 @@ import { findShop, presentAdminShop } from "@/lib/adminShops";
 export const OPTIONS = () => options();
 
 export const GET = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "shops");
   return json(await presentAdminShop(ctx.params?.id));
 });
 
 export const PATCH = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "shops");
   const merchant = await findShop(ctx.params?.id);
   const body = parseBody(
     shopPatchSchema.extend({

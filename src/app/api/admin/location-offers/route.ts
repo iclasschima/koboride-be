@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { api, json, options } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { assertOfferPlace, listLocationOffers, offerOrderCounts } from "@/lib/locationOffers";
 import { prisma } from "@/lib/prisma";
 import { parseBody, readJson } from "@/lib/validate";
@@ -20,7 +20,7 @@ const writeSchema = z.object({
 });
 
 export const GET = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "settings");
   const offers = await listLocationOffers();
   const counts = await offerOrderCounts(offers.map((offer) => offer.id));
   return json({
@@ -29,7 +29,7 @@ export const GET = api(async (req) => {
 });
 
 export const POST = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "settings");
   const body = parseBody(writeSchema, await readJson(req));
   assertOfferPlace(body);
   const offer = await prisma.locationOffer.create({

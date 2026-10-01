@@ -1,5 +1,5 @@
 import { api, json, options } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { prisma } from "@/lib/prisma";
 import { parseBody, readJson } from "@/lib/validate";
 import { createShop, presentMerchant, shopCreateSchema } from "@/lib/merchants";
@@ -7,14 +7,14 @@ import { createShop, presentMerchant, shopCreateSchema } from "@/lib/merchants";
 export const OPTIONS = () => options();
 
 export const POST = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "shops");
   const body = parseBody(shopCreateSchema, await readJson(req));
   const merchant = await createShop(body);
   return json({ merchant: presentMerchant(merchant) }, 201);
 });
 
 export const GET = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "shops");
   const [merchants, totals, delivered] = await Promise.all([
     prisma.merchant.findMany({
       orderBy: { createdAt: "desc" },

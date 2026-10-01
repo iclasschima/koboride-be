@@ -1,13 +1,13 @@
 import { z } from "zod";
 import { api, json, options, AppError } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { prisma } from "@/lib/prisma";
 import { parseBody, readJson } from "@/lib/validate";
 
 export const OPTIONS = () => options();
 
 export const PATCH = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "agents");
   const id = ctx.params?.id;
   if (!id) throw new AppError("Missing agent id", "VALIDATION_ERROR", 400);
   const body = parseBody(z.object({ active: z.boolean() }), await readJson(req));

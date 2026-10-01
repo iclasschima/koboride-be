@@ -264,6 +264,63 @@ export async function finalizePaystackTransfer(transferCode: string, otp: string
   return asTransfer(data);
 }
 
+export type PaystackTransaction = {
+  id: number;
+  reference: string;
+  amountKobo: number;
+  status: string;
+  channel: string | null;
+  email: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  metadata: Record<string, unknown>;
+};
+
+export async function listPaystackTransactions(input: {
+  page: number;
+  perPage: number;
+  status?: string;
+}): Promise<{ transactions: PaystackTransaction[]; pageCount: number; total: number }> {
+  const params = new URLSearchParams({ perPage: String(input.perPage), page: String(input.page) });
+  if (input.status) params.set("status", input.status);
+  const res = await fetch(`${BASE}/transaction?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${secretKey()}` },
+  });
+  const body = (await res.json().catch(() => ({}))) as PaystackEnvelope<
+    Array<{
+      id: number;
+      reference: string;
+      amount?: number;
+      status?: string;
+      channel?: string | null;
+      paid_at?: string | null;
+      created_at?: string;
+      createdAt?: string;
+      customer?: { email?: string | null } | null;
+      metadata?: unknown;
+    }>
+  > & { meta?: { pageCount?: number; total?: number } };
+  if (!res.ok || !body.status || !body.data) {
+    throw new AppError(body.message || "Could not load payments from Paystack", "PAYSTACK_ERROR", 502);
+  }
+  return {
+    transactions: body.data.map((row) => ({
+      id: row.id,
+      reference: row.reference,
+      amountKobo: Math.trunc(row.amount ?? 0),
+      status: row.status ?? "unknown",
+      channel: row.channel ?? null,
+      email: row.customer?.email ?? null,
+      paidAt: row.paid_at ?? null,
+      createdAt: row.created_at ?? row.createdAt ?? new Date().toISOString(),
+      metadata:
+        row.metadata && typeof row.metadata === "object" ? (row.metadata as Record<string, unknown>) : {},
+    })),
+    pageCount: body.meta?.pageCount ?? 1,
+    total: body.meta?.total ?? body.data.length,
+  };
+}
+
 export async function listSuccessfulChargesKobo(from: string, to: string): Promise<number> {
   let page = 1;
   let total = 0;

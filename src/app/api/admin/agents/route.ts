@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { api, json, options, AppError } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { normalizePhone, phoneLookupKeys } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 import { parseBody, readJson } from "@/lib/validate";
@@ -8,7 +8,7 @@ import { parseBody, readJson } from "@/lib/validate";
 export const OPTIONS = () => options();
 
 export const GET = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "agents");
   const agents = await prisma.agent.findMany({
     orderBy: { createdAt: "desc" },
     include: { _count: { select: { riders: true } } },
@@ -26,7 +26,7 @@ export const GET = api(async (req) => {
 });
 
 export const POST = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "agents");
   const body = parseBody(
     z.object({
       name: z.string().trim().min(2).max(80),

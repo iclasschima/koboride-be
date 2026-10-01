@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { api, json, options, AppError } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { assertOfferPlace } from "@/lib/locationOffers";
 import { prisma } from "@/lib/prisma";
 import { parseBody, readJson } from "@/lib/validate";
@@ -20,7 +20,7 @@ const writeSchema = z.object({
 });
 
 export const PATCH = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "settings");
   const id = ctx.params?.id;
   if (!id) throw new AppError("Missing offer id", "VALIDATION_ERROR", 400);
   const body = parseBody(writeSchema, await readJson(req));
@@ -35,7 +35,7 @@ export const PATCH = api(async (req, ctx) => {
 });
 
 export const DELETE = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "settings");
   const id = ctx.params?.id;
   if (!id) throw new AppError("Missing offer id", "VALIDATION_ERROR", 400);
   const existing = await prisma.locationOffer.findUnique({ where: { id } });

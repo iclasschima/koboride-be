@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { api, json, options } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { prisma } from "@/lib/prisma";
 import {
   autoConfirmStaleDeliveries,
@@ -15,7 +15,7 @@ import { findOrCreateCustomer } from "@/lib/customers";
 export const OPTIONS = () => options();
 
 export const GET = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "orders");
   await autoConfirmStaleDeliveries();
   const orders = await prisma.order.findMany({
     include: orderInclude,
@@ -26,7 +26,7 @@ export const GET = api(async (req) => {
 });
 
 export const POST = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "orders");
   const body = parseBody(
     z.object({
       customerName: z.string().min(1).max(80).optional(),

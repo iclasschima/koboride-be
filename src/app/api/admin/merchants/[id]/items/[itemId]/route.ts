@@ -1,5 +1,5 @@
 import { api, json, options, AppError } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { parseBody, readJson } from "@/lib/validate";
 import { itemPatchSchema, presentItem, removeShopItem, updateShopItem } from "@/lib/merchants";
 
@@ -13,7 +13,7 @@ function ids(ctx: { params?: Record<string, string> }) {
 }
 
 export const PATCH = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "shops");
   const { id, itemId } = ids(ctx);
   const body = parseBody(itemPatchSchema, await readJson(req));
   const item = await updateShopItem(id, itemId, body);
@@ -21,7 +21,7 @@ export const PATCH = api(async (req, ctx) => {
 });
 
 export const DELETE = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "shops");
   const { id, itemId } = ids(ctx);
   await removeShopItem(id, itemId);
   return json({ ok: true });

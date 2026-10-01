@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { api, json, options } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { getAgentPayConfig, updateAgentPayConfig } from "@/lib/agentPay";
 import { parseBody, readJson } from "@/lib/validate";
 
@@ -19,12 +19,12 @@ const patchSchema = z.object({
 });
 
 export const GET = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "agents");
   return json({ config: await getAgentPayConfig() });
 });
 
 export const PATCH = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "agents");
   const body = parseBody(patchSchema, await readJson(req));
   return json({ config: await updateAgentPayConfig(body) });
 });

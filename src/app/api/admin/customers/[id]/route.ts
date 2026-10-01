@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { api, json, options, AppError } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { config } from "@/lib/config";
 import { presentOrigin, sourceMerchantInclude } from "@/lib/customers";
 import { prisma } from "@/lib/prisma";
@@ -12,7 +12,7 @@ import { getMaxActiveOrders } from "@/lib/settings";
 export const OPTIONS = () => options();
 
 export const GET = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "users");
   const id = ctx.params?.id;
   if (!id) throw new AppError("Missing customer id", "VALIDATION_ERROR", 400);
 
@@ -69,7 +69,7 @@ export const GET = api(async (req, ctx) => {
 });
 
 export const PATCH = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "users");
   const id = ctx.params?.id;
   if (!id) throw new AppError("Missing customer id", "VALIDATION_ERROR", 400);
 

@@ -4,6 +4,7 @@ import { requireMerchant } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseBody, readJson } from "@/lib/validate";
 import { createMerchantOrder, presentMerchantOrder } from "@/lib/merchants";
+import { assertServiceOpen } from "@/lib/settings";
 import { orderInclude } from "@/lib/orders";
 import { PACKAGE_TYPES } from "@/lib/packages";
 
@@ -46,6 +47,7 @@ export const GET = api(async (req) => {
 
 export const POST = api(async (req) => {
   const { merchant } = await requireMerchant(req);
+  await assertServiceOpen();
   const body = parseBody(
     z.object({
       dropoff: z.string().min(3).max(240),

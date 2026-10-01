@@ -2,6 +2,7 @@ import { z } from "zod";
 import { api, json, options, AppError } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
 import { presentCustomer, presentRiderUser, requireUser } from "@/lib/auth";
+import { presentAdmin } from "@/lib/adminAuth";
 import { prisma } from "@/lib/prisma";
 
 export const OPTIONS = () => options();
@@ -10,15 +11,13 @@ export const GET = api(async (req) => {
   const user = requireUser(req);
 
   if (user.role === "admin") {
-    const admin = await prisma.admin.findUnique({
-      where: { id: user.sub },
-      select: { id: true, email: true, createdAt: true },
-    });
-    if (!admin) throw new AppError("Account not found", "NOT_FOUND", 404);
+    const admin = await prisma.admin.findUnique({ where: { id: user.sub } });
+    if (!admin || !admin.active) throw new AppError("Authentication required", "UNAUTHORIZED", 401);
     return json({
       role: "admin" as const,
-      user: { id: admin.id, email: admin.email, phone: admin.email, name: admin.email },
+      user: { id: admin.id, email: admin.email, phone: admin.email, name: admin.name ?? admin.email },
       rider: null,
+      admin: presentAdmin(admin),
     });
   }
 

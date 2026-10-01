@@ -1,12 +1,12 @@
 import { api, json, options, AppError } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { getOrderOrThrow, orderInclude, presentTrip } from "@/lib/orders";
 import { prisma } from "@/lib/prisma";
 
 export const OPTIONS = () => options();
 
 export const POST = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "orders");
   const id = ctx.params?.id;
   if (!id) throw new AppError("Missing order id", "VALIDATION_ERROR", 400);
 

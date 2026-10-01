@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { OrderStatus, RiderPhase } from "@prisma/client";
 import { api, json, options, AppError } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { noteRiderFirstTen } from "@/lib/onboarding";
 import { writeConfirmedLedgerNow } from "@/lib/ledger";
 import {
@@ -26,7 +26,7 @@ import {
 export const OPTIONS = () => options();
 
 export const POST = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "orders");
   const id = ctx.params?.id;
   if (!id) throw new AppError("Missing order id", "VALIDATION_ERROR", 400);
 

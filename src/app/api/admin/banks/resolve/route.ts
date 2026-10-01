@@ -1,11 +1,11 @@
 import { api, json, options } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { lookupAccountName } from "@/lib/bankVerify";
 
 export const OPTIONS = () => options();
 
 export const GET = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req);
   const url = new URL(req.url);
   const accountName = await lookupAccountName(
     url.searchParams.get("bankCode") ?? "",

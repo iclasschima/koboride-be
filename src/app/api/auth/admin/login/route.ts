@@ -4,6 +4,7 @@ import { api, json, options, AppError } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
 import { prisma } from "@/lib/prisma";
 import { signToken } from "@/lib/auth";
+import { presentAdmin } from "@/lib/adminAuth";
 import { rateLimit } from "@/lib/rate-limit";
 
 export const OPTIONS = () => options();
@@ -19,7 +20,7 @@ export const POST = api(async (req) => {
   rateLimit(`admin-login:${email}`, 8, 15 * 60 * 1000, "Too many login attempts.");
 
   const admin = await prisma.admin.findUnique({ where: { email } });
-  if (!admin || !(await bcrypt.compare(body.password, admin.passwordHash))) {
+  if (!admin || !admin.active || !(await bcrypt.compare(body.password, admin.passwordHash))) {
     throw new AppError("Invalid email or password", "INVALID_CREDENTIALS", 401);
   }
 
@@ -28,5 +29,6 @@ export const POST = api(async (req) => {
     token,
     role: "admin" as const,
     user: { id: admin.id, email: admin.email },
+    admin: presentAdmin(admin),
   });
 });

@@ -1,12 +1,12 @@
 import { api, json, options, AppError } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { computeAgentEarnings, currentEarningsMonth } from "@/lib/agentEarnings";
 import { prisma } from "@/lib/prisma";
 
 export const OPTIONS = () => options();
 
 export const GET = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "agents");
   const id = ctx.params?.id;
   if (!id) throw new AppError("Missing agent id", "VALIDATION_ERROR", 400);
   const agent = await prisma.agent.findUnique({ where: { id }, select: { id: true, name: true } });

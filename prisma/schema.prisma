@@ -146,11 +146,51 @@ model Rider {
   @@index([onboardingStatus, submittedAt])
 }
 
+enum AdminRole {
+  super
+  staff
+}
+
+/** What a staff admin may open. A super admin has all of them. */
+enum AdminPermission {
+  orders
+  users
+  shops
+  riders
+  agents
+  payouts
+  payments
+  settings
+}
+
 model Admin {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String            @id @default(cuid())
+  email        String            @unique
+  name         String?
   passwordHash String
-  createdAt    DateTime @default(now())
+  role         AdminRole         @default(super)
+  permissions  AdminPermission[]
+  /** Super admins confirm refunds and team changes with this PIN. */
+  pinHash      String?
+  active       Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  refunds      Refund[]
+}
+
+/** A refund an admin sent from the Payments tab. */
+model Refund {
+  id               String   @id @default(cuid())
+  reference        String
+  amountNgn        Int
+  reason           String
+  adminId          String
+  admin            Admin    @relation(fields: [adminId], references: [id])
+  orderId          String?
+  order            Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  paystackRefundId String?
+  createdAt        DateTime @default(now())
+
+  @@index([reference])
 }
 
 /** Field agent. Provisioned by admin; never self-registered. */
@@ -501,6 +541,7 @@ model Order {
 
   releases    OrderRelease[]
   events      OrderEvent[]
+  refunds     Refund[]
   ledgerEntries LedgerEntry[]
 
   @@index([status, scheduledFor])

@@ -1,11 +1,11 @@
 import { api, json, options } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { cachedBanks } from "@/lib/bankVerify";
 
 export const OPTIONS = () => options();
 
 export const GET = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req);
   const banks = await cachedBanks();
   return json({ banks });
 });

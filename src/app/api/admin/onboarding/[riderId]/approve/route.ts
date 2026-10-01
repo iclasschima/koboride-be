@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { api, json, options, AppError } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { writeOnboardingEvent } from "@/lib/onboarding";
 import { verifyRiderBank } from "@/lib/bankVerify";
 import { prisma } from "@/lib/prisma";
@@ -9,7 +9,7 @@ import { parseBody } from "@/lib/validate";
 export const OPTIONS = () => options();
 
 export const POST = api(async (req, ctx) => {
-  const admin = requireUser(req, ["admin"]);
+  const admin = await requireAdmin(req, "riders");
   const riderId = ctx.params?.riderId;
   if (!riderId) throw new AppError("Missing rider id", "VALIDATION_ERROR", 400);
 

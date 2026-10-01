@@ -1,5 +1,5 @@
 import { api, json, options } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { prisma } from "@/lib/prisma";
 import { orderInclude, presentTrip } from "@/lib/orders";
 import { zoneName } from "@/lib/zones";
@@ -7,7 +7,7 @@ import { zoneName } from "@/lib/zones";
 export const OPTIONS = () => options();
 
 export const GET = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "orders");
   const orders = await prisma.order.findMany({
     where: { status: { in: ["dispatching", "in_progress"] } },
     include: orderInclude,

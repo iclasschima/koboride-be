@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { quoteRoute } from "@/lib/fare";
 import { assertCustomerCanBook, countActiveOrders, resolveCustomerContacts } from "@/lib/orders";
-import { getMaxActiveOrders } from "@/lib/settings";
+import { assertServiceOpen, getMaxActiveOrders } from "@/lib/settings";
 import { onlinePaymentsEnabled } from "@/lib/payoutFlags";
 import {
   initializePaystack,
@@ -22,6 +22,7 @@ export const POST = api(async (req) => {
   if (!paystackConfigured() || !(await onlinePaymentsEnabled())) {
     throw new AppError("Card payment is not available right now", "ONLINE_PAYMENTS_DISABLED", 503);
   }
+  await assertServiceOpen();
 
   const body = parseBody(customerBookingSchema, await readJson(req));
   const customer = await prisma.customer.findUnique({ where: { id: user.sub } });

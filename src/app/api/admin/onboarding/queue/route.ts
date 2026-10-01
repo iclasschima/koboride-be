@@ -1,5 +1,5 @@
 import { api, json, options } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { adminRiderSecrets } from "@/lib/onboarding";
 import { presentRiderBank } from "@/lib/riders";
 import { prisma } from "@/lib/prisma";
@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 export const OPTIONS = () => options();
 
 export const GET = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "riders");
   const riders = await prisma.rider.findMany({
     where: {
       onboardedByAgentId: { not: null },

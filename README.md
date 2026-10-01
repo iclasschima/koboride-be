@@ -120,6 +120,7 @@ You can also skip the laptop migrate step: the API **build** already runs `prism
 | ---- | ----- |
 | `NODE_VERSION` | `20` |
 | `DATABASE_URL` | Internal URL from the Render Postgres instance (link the database in the dashboard if you can) |
+| `LISTEN_DATABASE_URL` | optional. Only needed when `DATABASE_URL` goes through a pooler (e.g. Neon `-pooler`): set a direct URL so live updates can listen. |
 | `JWT_SECRET` | long random string. Login tokens do not expire. |
 | `CORS_ORIGIN` | your frontend origin, e.g. `https://koboride-fe.onrender.com` |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | admin login |

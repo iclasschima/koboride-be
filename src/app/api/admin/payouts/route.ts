@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { api, json, options, AppError } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { prisma } from "@/lib/prisma";
 import { parseBody, readJson } from "@/lib/validate";
 import { paymentFlags, setPaymentFlag } from "@/lib/payoutFlags";
@@ -11,7 +11,7 @@ import { finalizePaystackTransfer } from "@/lib/paystack";
 export const OPTIONS = () => options();
 
 export const GET = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "payouts");
   const [runs, config, flags, reconciliation] = await Promise.all([
     prisma.payoutRun.findMany({ orderBy: { runDate: "desc" }, take: 30, include: { payouts: true } }),
     prisma.payoutConfig.findUnique({ where: { id: "default" } }),
@@ -33,7 +33,7 @@ const configSchema = z.object({
 });
 
 export const PATCH = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "payouts");
   const body = parseBody(configSchema, await readJson(req));
   const [config] = await Promise.all([
     prisma.payoutConfig.upsert({
@@ -63,7 +63,7 @@ export const PATCH = api(async (req) => {
 });
 
 export const POST = api(async (req) => {
-  const admin = requireUser(req, ["admin"]);
+  const admin = await requireAdmin(req, "payouts");
   const body = parseBody(
     z.object({
       action: z.enum(["dry-run", "run", "retry", "finalize-otp", "adjust", "replace-bank"]),

@@ -1,5 +1,5 @@
 import { api, json, options } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { config } from "@/lib/config";
 import { presentOrigin, reconcileDuplicateCustomers, sourceMerchantInclude } from "@/lib/customers";
 import { cancelWindowStart } from "@/lib/orders";
@@ -9,7 +9,7 @@ import { prisma } from "@/lib/prisma";
 export const OPTIONS = () => options();
 
 export const GET = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "users");
   await reconcileDuplicateCustomers();
 
   const [customers, riders] = await Promise.all([

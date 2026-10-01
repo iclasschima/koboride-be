@@ -1,11 +1,11 @@
 import { api, json, options, AppError } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { prisma } from "@/lib/prisma";
 
 export const OPTIONS = () => options();
 
 export const GET = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "payouts");
   const riderId = new URL(req.url).searchParams.get("riderId");
   if (!riderId) throw new AppError("Missing rider", "VALIDATION_ERROR", 400);
   const entries = await prisma.ledgerEntry.findMany({

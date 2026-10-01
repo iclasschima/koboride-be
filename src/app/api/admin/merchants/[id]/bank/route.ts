@@ -1,5 +1,5 @@
 import { api, json, options } from "@/lib/errors";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { parseBody, readJson } from "@/lib/validate";
 import { setShopBank, shopBankSchema } from "@/lib/merchants";
 import { findShop, presentAdminShop } from "@/lib/adminShops";
@@ -7,7 +7,7 @@ import { findShop, presentAdminShop } from "@/lib/adminShops";
 export const OPTIONS = () => options();
 
 export const PUT = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "shops");
   const merchant = await findShop(ctx.params?.id);
   const body = parseBody(shopBankSchema, await readJson(req));
   await setShopBank(merchant.id, body);

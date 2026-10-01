@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { api, json, options } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { uploadRiderIdDocument, uploadRiderPhoto } from "@/lib/cloudinary";
 import { prisma } from "@/lib/prisma";
 import { normalizePhone, phoneLookupKeys } from "@/lib/phone";
@@ -80,7 +80,7 @@ async function readCreateInput(req: Request): Promise<{
 }
 
 export const GET = api(async (req) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "riders");
   const [riders, completedRows, activeRows, dropRows, zoneRows] = await Promise.all([
     prisma.rider.findMany({ orderBy: { createdAt: "desc" } }),
     prisma.order.groupBy({
@@ -151,7 +151,7 @@ function countById(
 }
 
 export const POST = api(async (req) => {
-  const admin = requireUser(req, ["admin"]);
+  const admin = await requireAdmin(req, "riders");
   const input = await readCreateInput(req);
   const phone = normalizePhone(input.phone);
   const existing = await prisma.rider.findFirst({

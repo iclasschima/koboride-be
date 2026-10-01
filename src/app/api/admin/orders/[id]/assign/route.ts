@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { api, json, options, AppError } from "@/lib/errors";
 import { parseBody, readJson } from "@/lib/validate";
-import { requireUser } from "@/lib/auth";
+import { requireAdmin } from "@/lib/adminAuth";
 import { prisma } from "@/lib/prisma";
 import { orderInclude, presentTrip } from "@/lib/orders";
 import { notifyAdminOrderStatus, notifyOrderAccepted } from "@/lib/push";
@@ -9,7 +9,7 @@ import { notifyAdminOrderStatus, notifyOrderAccepted } from "@/lib/push";
 export const OPTIONS = () => options();
 
 export const POST = api(async (req, ctx) => {
-  requireUser(req, ["admin"]);
+  await requireAdmin(req, "orders");
   const id = ctx.params?.id;
   if (!id) throw new AppError("Missing order id", "VALIDATION_ERROR", 400);
 

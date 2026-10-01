@@ -4,7 +4,7 @@ import { getClientAppStatus } from "@/lib/settings";
 export const OPTIONS = () => options();
 
 export const GET = api(async () => {
-  const res = json(await getClientAppStatus());
+  const res = json(await getClientAppStatus({ fresh: true }));
   res.headers.set("Cache-Control", "no-store");
   return res;
 });
