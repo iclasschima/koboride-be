@@ -706,8 +706,9 @@ export async function placeOrder(input: PlaceOrderInput): Promise<OrderRow> {
     if (paid.status !== "success") {
       throw new AppError("Payment was not successful", "PAYMENT_REQUIRED", 402);
     }
-    if (paid.amountKobo !== nairaToKobo(quote.feeNgn)) {
-      throw new AppError("Paid amount does not match the fare", "PAYMENT_MISMATCH", 409);
+    // Paystack adds its fee on top when the customer bears charges, so more than the fare is fine.
+    if (paid.amountKobo < nairaToKobo(quote.feeNgn)) {
+      throw new AppError("Paid amount is less than the fare", "PAYMENT_MISMATCH", 409);
     }
     paymentStatus = "paid";
     paystackReference = ref;

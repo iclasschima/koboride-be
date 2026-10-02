@@ -9,7 +9,7 @@ import { cancelOrder, composeOrderNotes, orderInclude, splitOrderNotes, type Ord
 import { assertOfferUsesAvailable } from "@/lib/locationOffers";
 import { normalizePhone, phoneLookupKeys } from "@/lib/phone";
 import { DEFAULT_SHOP_PACKAGE, type PackageType } from "@/lib/packages";
-import { paystackFeeNgn, shopCardPaid, shopCardTotalNgn, shopPayoutNgn } from "@/lib/shopMoney";
+import { shopCardPaid, shopCardTotalNgn, shopPayoutNgn } from "@/lib/shopMoney";
 import { CLOCK, formatClock, shopHours, shopTakingOrders } from "@/lib/shopHours";
 import { onlinePaymentsEnabled } from "@/lib/payoutFlags";
 import { cachedBanks, lookupAccountName } from "@/lib/bankVerify";
@@ -507,9 +507,7 @@ export async function startShopCardPayment(
     paymentMethod: "paystack",
     customerId: customer.id,
   });
-  const cardNgn = shopCardTotalNgn(goodsNgn, quote.feeNgn, "receiver");
-  const paymentFeeNgn = paystackFeeNgn(cardNgn);
-  const totalNgn = cardNgn + paymentFeeNgn;
+  const totalNgn = shopCardTotalNgn(goodsNgn, quote.feeNgn, "receiver");
   const email = paystackEmail(customer.phone);
   const started = await initializePaystack({
     email,
@@ -524,7 +522,6 @@ export async function startShopCardPayment(
     email,
     amountKobo: nairaToKobo(totalNgn),
     feeNgn: totalNgn,
-    paymentFeeNgn,
   };
 }
 
@@ -540,10 +537,17 @@ async function verifyShopCardPayment(reference: string | undefined, totalNgn: nu
   if (paid.status !== "success") {
     throw new AppError("Payment was not successful", "PAYMENT_REQUIRED", 402);
   }
-  if (paid.amountKobo !== nairaToKobo(totalNgn)) {
-    throw new AppError("Paid amount does not match the order", "PAYMENT_MISMATCH", 409);
+  // Paystack adds its fee on top when the customer bears charges, so more than the total is fine.
+  const extraKobo = paid.amountKobo - nairaToKobo(totalNgn);
+  if (extraKobo < 0) {
+    throw new AppError("Paid amount is less than the order total", "PAYMENT_MISMATCH", 409);
   }
-  return { paymentStatus: "paid" as const, paystackReference: ref, paidAt: new Date() };
+  return {
+    paymentStatus: "paid" as const,
+    paystackReference: ref,
+    paidAt: new Date(),
+    paymentFeeNgn: Math.round(extraKobo / 100),
+  };
 }
 
 export async function createMerchantOrder(input: {
@@ -594,9 +598,10 @@ export async function createMerchantOrder(input: {
   });
   let payment = null;
   if (paymentMethod === "paystack") {
-    const cardNgn = shopCardTotalNgn(goodsNgn, quote.feeNgn, input.farePayer);
-    const paymentFeeNgn = paystackFeeNgn(cardNgn);
-    payment = { ...(await verifyShopCardPayment(input.paystackReference, cardNgn + paymentFeeNgn)), paymentFeeNgn };
+    payment = await verifyShopCardPayment(
+      input.paystackReference,
+      shopCardTotalNgn(goodsNgn, quote.feeNgn, input.farePayer),
+    );
   }
 
   const now = new Date();

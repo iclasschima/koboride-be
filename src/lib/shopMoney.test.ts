@@ -1,25 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { paystackFeeNgn, shopBalance, shopCardPaid, shopCardTotalNgn, shopPayoutNgn } from "./shopMoney";
-
-function paystackTakes(chargedNgn: number): number {
-  return Math.min(chargedNgn * 0.015 + (chargedNgn >= 2500 ? 100 : 0), 2000);
-}
-
-test("the Paystack fee leaves the full amount after Paystack takes its cut", () => {
-  for (const net of [1, 500, 2000, 2400, 2462, 2463, 2500, 6200, 50_000, 125_000, 126_000, 500_000]) {
-    const charged = net + paystackFeeNgn(net);
-    assert.ok(charged - paystackTakes(charged) >= net, `short at ₦${net}`);
-    assert.ok(charged - 1 - paystackTakes(charged - 1) < net, `over-charged at ₦${net}`);
-  }
-});
-
-test("the Paystack fee waives ₦100 under ₦2,500 and stops at ₦2,000", () => {
-  assert.equal(paystackFeeNgn(0), 0);
-  assert.equal(paystackFeeNgn(1970), 30);
-  assert.equal(paystackFeeNgn(6200), 196);
-  assert.equal(paystackFeeNgn(500_000), 2000);
-});
+import { shopBalance, shopCardPaid, shopCardTotalNgn, shopPayoutNgn } from "./shopMoney";
 
 test("customer-paid delivery is charged on the card with the items", () => {
   assert.equal(shopCardTotalNgn(5000, 1200, "receiver"), 6200);
