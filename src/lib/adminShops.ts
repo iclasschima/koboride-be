@@ -5,8 +5,8 @@ import { adminShopBank, listShopItems, presentMerchant } from "@/lib/merchants";
 import { shopPayoutNgn } from "@/lib/shopMoney";
 import { paystackConfigured } from "@/lib/paystack";
 import { presentShopPayout, shopLedger, shopSettlement } from "@/lib/shopPayouts";
+import { betweenDays } from "@/lib/listQuery";
 
-const LAGOS_OFFSET_MS = 60 * 60 * 1000;
 const SHOP_ORDERS_LIMIT = 500;
 
 export async function findShop(id: string | undefined) {
@@ -53,20 +53,11 @@ export async function presentAdminShop(id: string | undefined) {
   };
 }
 
-/** Start of a Lagos calendar day (YYYY-MM-DD) as a UTC instant. */
-function lagosDayStart(day: string): Date {
-  const [year, month, date] = day.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, date) - LAGOS_OFFSET_MS);
-}
-
 /** A shop's orders booked between two Lagos days (both included), with totals over every match. */
 export async function listAdminShopOrders(id: string | undefined, range: { from?: string; to?: string }) {
   const merchant = await findShop(id);
-  const createdAt = {
-    ...(range.from ? { gte: lagosDayStart(range.from) } : {}),
-    ...(range.to ? { lt: new Date(lagosDayStart(range.to).getTime() + 24 * 60 * 60 * 1000) } : {}),
-  };
-  const where = { merchantId: merchant.id, ...(range.from || range.to ? { createdAt } : {}) };
+  const createdAt = betweenDays(range);
+  const where = { merchantId: merchant.id, ...(createdAt ? { createdAt } : {}) };
   const [orders, all, { paidAt }] = await Promise.all([
     prisma.order.findMany({
       where,
